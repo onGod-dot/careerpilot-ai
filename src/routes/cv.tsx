@@ -77,11 +77,11 @@ function CVPage() {
     setStage("uploading");
     setProgress(0);
     try {
-      const text = await extractTextFromFile(file, (p) => setProgress(p));
+      const text = await extractTextFromFile(file);
       setCvText(text);
       saveCVText(text, file.name);
       setStage("analysing");
-      setProgress(40);
+      setProgress(45);
 
       // Simulate progress during AI analysis (40-100%)
       progressIntervalRef.current = setInterval(() => {
