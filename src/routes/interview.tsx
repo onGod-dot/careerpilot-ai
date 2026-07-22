@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell, PageHeader } from "@/components/app-shell";
 import {
   Mic, Square, RotateCcw, Loader2, Play, Volume2, VolumeX,
-  ChevronDown, User, AlertCircle, CheckCircle2,
+  ChevronDown, User, AlertCircle, CheckCircle2, TrendingUp, RefreshCw,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
@@ -27,25 +27,38 @@ export const Route = createFileRoute("/interview")({
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Message { role: "ai" | "user"; text: string; }
-interface Score   { label: string; value: number; improve: string; }
+interface Score   { label: string; value: number; tip: string; }
 type Stage = "idle" | "speaking" | "live" | "recording" | "transcribing" | "thinking" | "done";
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(role: string, skills: string[]): string {
+function buildSystemPrompt(role: string, skills: string[], seed: number): string {
+  // seed changes the question set so "Try again" gives fresh questions
+  const sets = [
+    "technical deep-dive, system design, a tricky problem-solving scenario, a behavioural (STAR method), and motivation/career goals",
+    "architecture decisions, debugging approach, a past project challenge, teamwork & conflict, and where you see yourself in 3 years",
+    "code quality & testing, scalability thinking, a time you failed and recovered, communication with non-technical stakeholders, and why this role",
+    "core ${role} concepts, a real-world trade-off scenario, a behavioural about ownership, cultural fit, and your biggest technical achievement",
+  ];
+  const focus = sets[seed % sets.length].replace("${role}", role);
   return `You are a senior technical interviewer conducting a realistic mock job interview for a ${role} position.
 
 Rules:
-- Ask ONE question at a time. Keep it concise (max 3 sentences).
-- After each answer, give 1 sentence of constructive feedback, then ask the next question.
-- Cover: technical skills (${skills.slice(0, 4).join(", ")}), system design, problem-solving, behavioral, and motivation.
+- Ask exactly 5 questions total, one at a time. Keep each question concise (max 2-3 sentences).
+- After each answer (except the last), give 1 short sentence of constructive feedback, then ask the next question.
+- After the 5th answer, give brief overall feedback, then IMMEDIATELY output the SCORE_JSON on its own line.
+- Cover these 5 areas in order: ${focus}.
+- Tailor questions to these skills: ${skills.slice(0, 5).join(", ")}.
 - Be professional, warm, and push back gently to test depth.
-- After 6 exchanges (12 messages total), end the interview.
-- End with ONLY this JSON on its own line (no other text after it):
-SCORE_JSON:{"confidence":0,"communication":0,"technical":0,"problemSolving":0,"professionalism":0,"improvements":["area1","area2","area3"]}
+- Do NOT ask more than 5 questions under any circumstances.
 
-Replace 0s with scores 0-100. improvements = 3 specific areas to work on.
-Start by greeting the candidate warmly and asking your first question.`;
+After the 5th answer output ONLY this JSON block (no other text after it):
+SCORE_JSON:{"confidence":0,"communication":0,"technical":0,"problemSolving":0,"professionalism":0,"tips":{"confidence":"specific tip","communication":"specific tip","technical":"specific tip","problemSolving":"specific tip","professionalism":"specific tip"},"improvements":["specific area 1","specific area 2","specific area 3"]}
+
+Replace 0s with scores 0-100 based on actual answers given.
+tips = one actionable sentence per dimension telling the candidate exactly how to improve that specific score.
+improvements = 3 most impactful areas to work on, written as full sentences referencing what they actually said.
+Start by greeting the candidate warmly and immediately asking your first question.`;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -67,6 +80,7 @@ export default function InterviewPage() {
   const [ttsEnabled,    setTtsEnabled]    = useState(true);
   const [ttsStatus,     setTtsStatus]     = useState("");
   const [recordSecs,    setRecordSecs]    = useState(0);
+  const [seed,          setSeed]          = useState(0);
 
   const timerRef     = useRef<ReturnType<typeof setInterval> | null>(null);
   const recTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -126,14 +140,17 @@ export default function InterviewPage() {
       try {
         const s = JSON.parse(scoreMatch[1]) as {
           confidence: number; communication: number; technical: number;
-          problemSolving: number; professionalism: number; improvements: string[];
+          problemSolving: number; professionalism: number;
+          tips: { confidence: string; communication: string; technical: string; problemSolving: string; professionalism: string };
+          improvements: string[];
         };
+        const tips = s.tips ?? { confidence: "", communication: "", technical: "", problemSolving: "", professionalism: "" };
         const newScores: Score[] = [
-          { label: "Confidence",      value: s.confidence,     improve: "" },
-          { label: "Communication",   value: s.communication,  improve: "" },
-          { label: "Technical",       value: s.technical,      improve: "" },
-          { label: "Problem Solving", value: s.problemSolving, improve: "" },
-          { label: "Professionalism", value: s.professionalism, improve: "" },
+          { label: "Confidence",      value: s.confidence,      tip: tips.confidence      || "" },
+          { label: "Communication",   value: s.communication,   tip: tips.communication   || "" },
+          { label: "Technical",       value: s.technical,       tip: tips.technical       || "" },
+          { label: "Problem Solving", value: s.problemSolving,  tip: tips.problemSolving  || "" },
+          { label: "Professionalism", value: s.professionalism, tip: tips.professionalism || "" },
         ];
         setScores(newScores);
         setImprovements(s.improvements ?? []);
@@ -156,8 +173,8 @@ export default function InterviewPage() {
     const newHist: GroqMessage[] = [...hist, { role: "user", content: text }];
     try {
       const reply = await groqChat(
-        [{ role: "system", content: buildSystemPrompt(role, skills) }, ...newHist],
-        { model: MODEL_FAST, temperature: 0.7, max_tokens: 450 },
+        [{ role: "system", content: buildSystemPrompt(role, skills, seed) }, ...newHist],
+        { model: MODEL_FAST, temperature: 0.7, max_tokens: 500 },
       );
       const updated: GroqMessage[] = [...newHist, { role: "assistant", content: reply }];
       setHistory(updated);
@@ -167,7 +184,7 @@ export default function InterviewPage() {
       toast.error("Connection error. Please try again.");
       setStage("live");
     }
-  }, [role, skills, handleAIReply]);
+  }, [role, skills, seed, handleAIReply]);
 
   // ─── Start interview ──────────────────────────────────────────────────────
 
@@ -178,7 +195,7 @@ export default function InterviewPage() {
     try {
       const reply = await groqChat(
         [
-          { role: "system", content: buildSystemPrompt(role, skills) },
+          { role: "system", content: buildSystemPrompt(role, skills, seed) },
           { role: "user",   content: "Hello, I'm ready to start." },
         ],
         { model: MODEL_FAST, temperature: 0.7, max_tokens: 300 },
@@ -254,7 +271,12 @@ export default function InterviewPage() {
     if (recTimerRef.current) clearInterval(recTimerRef.current);
     setStage("idle"); setMessages([]); setHistory([]);
     setElapsed(0); setQCount(0); setUserInput("");
-    setTtsStatus("");
+    setTtsStatus(""); setScores([]); setImprovements([]);
+  };
+
+  const tryAgain = () => {
+    setSeed((s) => s + 1);
+    reset();
   };
 
   const isBusy = ["speaking", "thinking", "transcribing"].includes(stage);
@@ -349,7 +371,7 @@ export default function InterviewPage() {
                 </p>
                 {stage !== "idle" && stage !== "done" && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {fmt(elapsed)} · Q {qCount} / 8
+                    {fmt(elapsed)} · Q {qCount} / 5
                   </p>
                 )}
               </div>
@@ -454,84 +476,121 @@ export default function InterviewPage() {
       {/* Scores + improvement report */}
       {stage === "done" && scores.length > 0 && (
         <div className="mt-8 space-y-4">
-          {/* Score cards */}
+
+          {/* Overall score hero */}
+          <div className="rounded-xl border border-border bg-card p-6">
+            <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Interview Result</p>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className={`text-6xl font-bold ${
+                    Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 80 ? "text-primary"
+                    : Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 60 ? "text-[color:var(--color-warning)]"
+                    : "text-destructive"
+                  }`}>
+                    {Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length)}
+                  </span>
+                  <span className="text-xl text-muted-foreground">/ 100</span>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 80
+                    ? "Strong performance — you're interview-ready."
+                    : Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 60
+                      ? "Good effort. Work on the areas below to level up."
+                      : "Keep practising. Detailed coaching tips are below."}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={tryAgain}
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  <RefreshCw className="h-4 w-4" /> Try again — new questions
+                </button>
+                <button
+                  onClick={reset}
+                  className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2.5 text-sm font-medium hover:bg-accent transition-colors"
+                >
+                  <RotateCcw className="h-4 w-4" /> Same set
+                </button>
+              </div>
+            </div>
+            <div className="mt-5 h-2.5 w-full rounded-full bg-muted">
+              <div
+                className={`h-2.5 rounded-full transition-all duration-1000 ${
+                  Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 80 ? "bg-primary"
+                  : Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 60 ? "bg-[color:var(--color-warning)]"
+                  : "bg-destructive"
+                }`}
+                style={{ width: `${Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Per-dimension score cards with improvement tips */}
           <div className="rounded-xl border border-border bg-card p-6">
             <div className="mb-5 flex items-center justify-between">
-              <div className="text-sm font-semibold">Your interview scores</div>
-              <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-                Final results
-              </span>
+              <div className="text-sm font-semibold">Score breakdown</div>
+              <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">5 dimensions</span>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
               {scores.map((r) => {
-                const color = r.value >= 80 ? "bg-primary" : r.value >= 60 ? "bg-[color:var(--color-warning)]" : "bg-destructive";
+                const colour = r.value >= 80 ? "bg-primary text-primary" : r.value >= 60 ? "bg-[color:var(--color-warning)] text-[color:var(--color-warning)]" : "bg-destructive text-destructive";
+                const barColour = r.value >= 80 ? "bg-primary" : r.value >= 60 ? "bg-[color:var(--color-warning)]" : "bg-destructive";
                 return (
                   <div key={r.label} className="rounded-xl border border-border bg-background p-4">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{r.label}</div>
-                    <div className={`mt-1 text-2xl font-bold ${
-                      r.value >= 80 ? "text-primary" : r.value >= 60 ? "text-[color:var(--color-warning)]" : "text-destructive"
-                    }`}>{r.value}</div>
-                    <div className="mt-2 h-1.5 w-full rounded-full bg-muted">
-                      <div className={`h-1.5 rounded-full transition-all duration-700 ${color}`}
-                        style={{ width: `${r.value}%` }} />
+                    <div className={`mt-1 text-3xl font-bold ${r.value >= 80 ? "text-primary" : r.value >= 60 ? "text-[color:var(--color-warning)]" : "text-destructive"}`}>
+                      {r.value}
                     </div>
+                    <div className="mt-2 h-1.5 w-full rounded-full bg-muted">
+                      <div className={`h-1.5 rounded-full transition-all duration-700 ${barColour}`} style={{ width: `${r.value}%` }} />
+                    </div>
+                    {r.tip && (
+                      <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground line-clamp-3">{r.tip}</p>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* Overall + improvements */}
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-xl border border-border bg-card p-6">
-              <div className="mb-3 text-sm font-semibold">Overall score</div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-5xl font-bold text-primary">
-                  {Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length)}
-                </span>
-                <span className="text-lg text-muted-foreground">/ 100</span>
-              </div>
-              <div className="mt-4 h-2 w-full rounded-full bg-muted">
-                <div className="h-2 rounded-full bg-primary transition-all"
-                  style={{ width: `${Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length)}%` }} />
-              </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                {Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 80
-                  ? "Strong performance. You're interview-ready."
-                  : Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 60
-                    ? "Good effort. Work on the areas below to level up."
-                    : "Keep practising. The AI coach tips below will help."}
-              </p>
+          {/* Top 3 improvement areas */}
+          <div className="rounded-xl border border-border bg-card p-6">
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
+              <TrendingUp className="h-4 w-4 text-primary" />
+              Top areas to work on
             </div>
-
-            <div className="rounded-xl border border-border bg-card p-6">
-              <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
-                <AlertCircle className="h-4 w-4 text-[color:var(--color-warning)]" />
-                Areas to improve
-              </div>
-              {improvements.length > 0 ? (
-                <ul className="space-y-3">
-                  {improvements.map((imp, i) => (
-                    <li key={i} className="flex gap-3 text-sm">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[color:var(--color-warning)]/10 text-xs font-bold text-[color:var(--color-warning)]">
-                        {i + 1}
-                      </span>
-                      <span className="text-foreground leading-relaxed">{stripMarkdown(imp)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No specific areas flagged — great job!</p>
-              )}
-            </div>
+            {improvements.length > 0 ? (
+              <ul className="space-y-3">
+                {improvements.map((imp, i) => (
+                  <li key={i} className="flex gap-3 rounded-lg border border-border bg-background p-4">
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--color-warning)]/10 text-xs font-bold text-[color:var(--color-warning)]">
+                      {i + 1}
+                    </span>
+                    <span className="text-sm leading-relaxed text-foreground">{stripMarkdown(imp)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No specific areas flagged — great job!</p>
+            )}
           </div>
 
-          <div className="flex justify-center">
-            <button onClick={reset}
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
-              <RotateCcw className="h-4 w-4" /> Practice again
+          {/* Bottom CTA */}
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-6 text-center">
+            <p className="text-sm font-semibold">Ready to go again with a fresh set of questions?</p>
+            <p className="text-xs text-muted-foreground max-w-sm">
+              Each session covers different topics — the more you practice, the higher your score.
+            </p>
+            <button
+              onClick={tryAgain}
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" /> Try again — different questions
             </button>
           </div>
+
         </div>
       )}
     </AppShell>
