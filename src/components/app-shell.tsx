@@ -144,7 +144,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
     <div className="min-h-dvh bg-background text-foreground">
       <div className="flex min-h-dvh">
         {/* Sidebar */}
-        <aside className="hidden w-60 shrink-0 border-r border-border bg-sidebar lg:flex lg:flex-col">
+        <aside className="hidden w-60 shrink-0 border-r border-border bg-sidebar lg:flex lg:flex-col lg:sticky lg:top-0 lg:h-dvh">
           <div className="flex h-16 items-center gap-2 border-b border-border px-5">
             <div className="grid h-7 w-7 place-items-center rounded-md bg-primary text-primary-foreground">
               <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
