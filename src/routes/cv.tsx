@@ -47,7 +47,6 @@ function CVPage() {
   const [stage, setStage] = useState<Stage>("empty");
   const [fileName, setFileName] = useState("");
   const [cvText, setCvText] = useState("");
-  const [fileUrl, setFileUrl] = useState<string>("");
   const [analysis, setAnalysis] = useState<CVAnalysis | null>(null);
   const [generatedCV, setGeneratedCV] = useState("");
   const [progress, setProgress] = useState(0);
@@ -78,11 +77,7 @@ function CVPage() {
     setStage("uploading");
     setProgress(0);
     try {
-      // Create blob URL for PDF viewing
-      const url = URL.createObjectURL(file);
-      setFileUrl(url);
-
-      const text = await extractTextFromFile(file);
+      const text = await extractTextFromFile(file, (p) => setProgress(p));
       setCvText(text);
       saveCVText(text, file.name);
       setStage("analysing");
@@ -145,14 +140,10 @@ function CVPage() {
   };
 
   const handleReset = () => {
-    if (fileUrl) {
-      URL.revokeObjectURL(fileUrl);
-    }
     clearCV();
     setStage("empty");
     setFileName("");
     setCvText("");
-    setFileUrl("");
     setAnalysis(null);
     setGeneratedCV("");
     setProgress(0);
@@ -294,30 +285,20 @@ function CVPage() {
                   <RefreshCw className="h-3 w-3" /> Replace
                 </button>
               </div>
-              <div className="mt-4 max-h-[480px] overflow-y-auto rounded-lg border border-border bg-background">
-                {fileUrl && fileName.toLowerCase().endsWith('.pdf') ? (
-                  <iframe
-                    src={fileUrl}
-                    className="w-full h-[480px]"
-                    title="CV Preview"
-                  />
-                ) : (
-                  <div className="p-5">
-                    {analysis.name && (
-                      <>
-                        <div className="text-lg font-semibold">{analysis.name}</div>
-                        {analysis.headline && (
-                          <div className="text-xs text-muted-foreground">{analysis.headline}</div>
-                        )}
-                        <hr className="my-3 border-border" />
-                      </>
+              <div className="mt-4 max-h-[480px] overflow-y-auto rounded-lg border border-border bg-background p-5">
+                {analysis.name && (
+                  <>
+                    <div className="text-lg font-semibold">{analysis.name}</div>
+                    {analysis.headline && (
+                      <div className="text-xs text-muted-foreground">{analysis.headline}</div>
                     )}
-                    <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-foreground">
-                      {cvText.slice(0, 1800)}
-                      {cvText.length > 1800 ? "\n\n[… preview truncated]" : ""}
-                    </pre>
-                  </div>
+                    <hr className="my-3 border-border" />
+                  </>
                 )}
+                <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-foreground">
+                  {cvText.slice(0, 1800)}
+                  {cvText.length > 1800 ? "\n\n[… preview truncated]" : ""}
+                </pre>
               </div>
             </div>
 
@@ -390,7 +371,8 @@ function CVPage() {
                 </ul>
                 <button
                   onClick={handleGenerateCV}
-                  className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                  disabled={stage === "generating"}
+                  className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                 >
                   <Sparkles className="h-4 w-4" /> Improve my CV <ArrowRight className="h-4 w-4" />
                 </button>
