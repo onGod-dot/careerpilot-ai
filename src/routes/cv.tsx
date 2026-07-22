@@ -425,7 +425,9 @@ function StatusIcon({ status }: { status: "good" | "warn" | "bad" }) {
 async function analyseCV(text: string): Promise<CVAnalysis> {
   const prompt = `You are an expert CV/resume reviewer and ATS specialist.
 
-Analyse the following CV text and return ONLY a valid JSON object (no markdown, no explanation).
+Analyse the following CV text and return ONLY a valid JSON object.
+
+IMPORTANT: Return ONLY raw JSON. No markdown code blocks, no explanation, no extra text.
 
 The JSON must have this exact shape:
 {
@@ -452,49 +454,72 @@ The JSON must have this exact shape:
   ]
 }
 
-Rules:
-- status "good" = score >= 80, "warn" = 50-79, "bad" = < 50
-- overallScore = weighted average of section scores
+Scoring Criteria:
+- Formatting: Check for consistent formatting, proper spacing, clear section headers (score 0-100)
+- Grammar: Check for spelling errors, typos, grammatical mistakes (score 0-100)
+- ATS Keywords: Check for industry-relevant keywords, action verbs, skills (score 0-100)
+- Skills Section: Check if skills are listed, categorized, and relevant (score 0-100)
+- Experience: Check for work history, role descriptions, achievements (score 0-100)
+- Projects: Check for project descriptions, impact, technologies used (score 0-100)
+- Achievements: Check for quantified results, awards, recognitions (score 0-100)
+- Professional Summary: Check for compelling summary, target role, value proposition (score 0-100)
+
+Status Rules:
+- status "good" = score >= 80
+- status "warn" = 50-79  
+- status "bad" = < 50
+- overallScore = weighted average of all section scores
 - atsReady = true if overallScore >= 75
-- suggestions must be specific and actionable, not generic
-- Return ONLY the JSON, nothing else.
 
-CV text:
-${text.slice(0, 3000)}`;
+Suggestions must be:
+- Specific to the CV content
+- Actionable and practical
+- Based on actual weaknesses found
+- Not generic or template-based
 
+CV text to analyse:
+${text.slice(0, 4000)}`;
+
+  console.log("[CV Analysis] Sending request to AI...");
   const raw = await groqChat([{ role: "user", content: prompt }], {
-    model: MODEL_FAST,
-    temperature: 0.3,
-    max_tokens: 800,
+    model: MODEL_QUALITY,
+    temperature: 0.2,
+    max_tokens: 1500,
   });
+
+  console.log("[CV Analysis] Raw AI response:", raw);
 
   try {
     // Strip any accidental markdown fences
     const clean = raw.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean) as CVAnalysis;
-  } catch {
+    const parsed = JSON.parse(clean) as CVAnalysis;
+    console.log("[CV Analysis] Parsed successfully:", parsed);
+    return parsed;
+  } catch (error) {
+    console.error("[CV Analysis] JSON parse error:", error);
+    console.error("[CV Analysis] Failed to parse:", raw);
     // Fallback if JSON is malformed
     return {
-      overallScore: 70,
+      overallScore: 50,
       atsReady: false,
       name: "",
       headline: "",
       skills: [],
       sections: [
-        { label: "Formatting", status: "warn", score: 70 },
-        { label: "Grammar", status: "good", score: 80 },
-        { label: "ATS Keywords", status: "warn", score: 65 },
-        { label: "Skills Section", status: "warn", score: 70 },
-        { label: "Experience", status: "good", score: 80 },
-        { label: "Projects", status: "warn", score: 65 },
-        { label: "Achievements", status: "bad", score: 55 },
-        { label: "Professional Summary", status: "warn", score: 68 },
+        { label: "Formatting", status: "bad", score: 50 },
+        { label: "Grammar", status: "warn", score: 60 },
+        { label: "ATS Keywords", status: "bad", score: 40 },
+        { label: "Skills Section", status: "warn", score: 55 },
+        { label: "Experience", status: "warn", score: 60 },
+        { label: "Projects", status: "bad", score: 45 },
+        { label: "Achievements", status: "bad", score: 40 },
+        { label: "Professional Summary", status: "warn", score: 55 },
       ],
       suggestions: [
-        "Add quantified achievements with metrics (e.g., reduced load time by 40%).",
-        "Include more ATS-friendly keywords relevant to your target role.",
-        "Strengthen your professional summary to lead with your target role.",
-        "Add links to GitHub, portfolio, or LinkedIn.",
+        "CV analysis failed to parse. Please try uploading your CV again.",
+        "Ensure your CV is in PDF or DOCX format with readable text.",
+        "If the issue persists, try pasting your CV content manually.",
+        "Contact support if the problem continues.",
       ],
     };
   }
