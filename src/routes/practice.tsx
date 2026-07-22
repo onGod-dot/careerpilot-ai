@@ -722,11 +722,99 @@ Rules:
     const clean = raw.replace(/```json|```/g, "").trim();
     const start = clean.indexOf("[");
     const end   = clean.lastIndexOf("]");
+    if (start === -1 || end === -1 || start > end) {
+      throw new Error("Unable to locate JSON array in aptitude response");
+    }
     return JSON.parse(clean.slice(start, end + 1)) as AptitudeQuestion[];
-  } catch {
-    // Fallback: try parsing as-is
-    return JSON.parse(raw.replace(/```json|```/g, "").trim()) as AptitudeQuestion[];
+  } catch (error) {
+    console.warn("[generateAptitudeQuestions] parse failed, using fallback questions:", error);
+    return getFallbackAptitudeQuestions(role, skills);
   }
+}
+
+function getFallbackAptitudeQuestions(role: string, skills: string): AptitudeQuestion[] {
+  return [
+    {
+      question: `Which of the following is the best first step when preparing a resume for a ${role}?`,
+      options: [
+        "Use a creative font",
+        "Include an objective statement",
+        "Match keywords from the job description",
+        "Add personal hobbies",
+      ],
+      answer: 2,
+      explanation: "Matching keywords helps your resume pass ATS and shows relevance to the role.",
+      category: "domain",
+    },
+    {
+      question: "If a sequence follows 2, 4, 8, 16, what is the next number?",
+      options: ["18", "20", "24", "32"],
+      answer: 3,
+      explanation: "This is a doubling pattern, so the next value is 32.",
+      category: "logical",
+    },
+    {
+      question: "A report has 100 pages. You have read 30 pages. What percentage have you completed?",
+      options: ["20%", "30%", "40%", "70%"],
+      answer: 1,
+      explanation: "30 out of 100 pages is 30%.",
+      category: "numerical",
+    },
+    {
+      question: "Which sentence uses the word 'affect' correctly?",
+      options: [
+        "The new feature will affect customer adoption.",
+        "The affect of the update was positive.",
+        "She was affected by the news.",
+        "He will affect the meeting tomorrow.",
+      ],
+      answer: 0,
+      explanation: "Affect is used correctly as a verb meaning influence.",
+      category: "verbal",
+    },
+    {
+      question: `Which skill is most important when ${role} professionals collaborate across teams?`,
+      options: ["Coding speed", "Clear communication", "Micro-optimizations", "Solo work"],
+      answer: 1,
+      explanation: "Clear communication is critical for collaboration and successful delivery.",
+      category: "domain",
+    },
+    {
+      question: "If a product grows by 20% and then decreases by 20%, what happens?",
+      options: ["Returns to original", "Slightly decreases", "Slightly increases", "Drops by 40%"],
+      answer: 1,
+      explanation: "A 20% decrease after a 20% increase leaves the value slightly lower than the start.",
+      category: "numerical",
+    },
+    {
+      question: "Choose the word that best completes the sentence: 'The team __________ the deadline by communicating clearly.'",
+      options: ["met", "meet", "meeting", "meets"],
+      answer: 0,
+      explanation: "'Met' is the correct past tense verb form.",
+      category: "verbal",
+    },
+    {
+      question: "What is the next letter in the series A, C, F, J, O?",
+      options: ["Q", "R", "S", "T"],
+      answer: 0,
+      explanation: "The series increases by 2, 3, 4, 5, so next is Q.",
+      category: "logical",
+    },
+    {
+      question: `Which of these best demonstrates critical thinking for ${role}?`,
+      options: ["Copying an existing solution", "Asking why a process exists", "Waiting for direction", "Adding more features"],
+      answer: 1,
+      explanation: "Critical thinking involves questioning assumptions and understanding why something is done.",
+      category: "domain",
+    },
+    {
+      question: "If you score 7 out of 10, what is your success rate?",
+      options: ["60%", "70%", "80%", "90%"],
+      answer: 1,
+      explanation: "7 out of 10 is 70%.",
+      category: "numerical",
+    },
+  ];
 }
 
 async function evaluateAptitude(
@@ -825,9 +913,12 @@ Rules:
     const clean = raw.replace(/```json|```/g, "").trim();
     const start = clean.indexOf("{");
     const end   = clean.lastIndexOf("}");
+    if (start === -1 || end === -1 || start > end) {
+      throw new Error("Unable to locate JSON object in coding problem response");
+    }
     return JSON.parse(clean.slice(start, end + 1)) as CodingProblem;
-  } catch {
-    // Fallback problem
+  } catch (error) {
+    console.warn("[generateCodingProblem] parse failed, using fallback problem:", error);
     return {
       title: "Reverse a String",
       difficulty: "Easy",

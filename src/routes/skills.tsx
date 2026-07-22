@@ -62,9 +62,13 @@ Use real, publicly available resources (MDN, YouTube, official docs, freeCodeCam
       const clean = raw.replace(/```json|```/g, "").trim();
       const start = clean.indexOf("[");
       const end = clean.lastIndexOf("]");
+      if (start === -1 || end === -1 || start > end) {
+        throw new Error("Unable to parse AI recommendations response");
+      }
       setAiRecs(JSON.parse(clean.slice(start, end + 1)) as AIRec[]);
       toast.success("AI recommendations ready!");
-    } catch {
+    } catch (error) {
+      console.warn("[SkillsPage] AI recommendations parse failed:", error);
       toast.error("Failed to generate recommendations.");
     } finally {
       setLoadingRecs(false);

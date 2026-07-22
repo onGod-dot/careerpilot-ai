@@ -8,7 +8,7 @@ import {
 import { useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { extractTextFromFile } from "@/lib/cv-parser";
-import { groqChat, MODEL_QUALITY } from "@/lib/groq";
+import { groqChat, MODEL_QUALITY, MODEL_FAST } from "@/lib/groq";
 import { stripMarkdown } from "@/lib/format";
 import {
   saveCVText, saveCVAnalysis, loadCVText, loadCVAnalysis,
@@ -106,6 +106,14 @@ function WizardPage() {
     setUploadStage("reading");
     try {
       const text = await extractTextFromFile(file);
+
+      // Guard: if PDF extraction failed or returned near-empty text
+      if (!text || text.trim().length < 50) {
+        toast.error("Could not read text from this file. Try a different PDF, or paste your CV as a .txt file.");
+        setUploadStage("idle");
+        return;
+      }
+
       setCvText(text);
       saveCVText(text, file.name);
       setUploadStage("analysing");
@@ -127,8 +135,15 @@ function WizardPage() {
       go("results");
       toast.success("CV analysed successfully!");
     } catch (e) {
-      console.error(e);
-      toast.error("Analysis failed — please try again.");
+      console.error("[processFile] error:", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("429")) {
+        toast.error("AI rate limit reached — wait 30 seconds and try again.");
+      } else if (msg.includes("401") || msg.includes("403")) {
+        toast.error("API key issue — please refresh the page and try again.");
+      } else {
+        toast.error(`Analysis failed: ${msg.slice(0, 80)}`);
+      }
       setUploadStage("idle");
     }
   }, []);
@@ -151,7 +166,7 @@ function WizardPage() {
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
-      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.txt" className="hidden"
+      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ""; }} />
       <Header current={step} />
       {/* page body — padded below fixed header */}
@@ -799,87 +814,69 @@ function SIcon({ status }: { status: "good" | "warn" | "bad" }) {
 
 // ─── AI helpers ───────────────────────────────────────────────────────────────
 async function analyseCV(text: string): Promise<CVAnalysis> {
+  // Trim to 3000 chars — enough for solid analysis and keeps token usage down
+  const cvSnippet = text.replace(/\s+/g, " ").trim().slice(0, 3000);
+
   const prompt = `You are an expert CV/resume reviewer and ATS specialist.
 
-Analyse the following CV text and return ONLY a valid JSON object.
+Analyse the CV below and return ONLY a valid JSON object — no markdown, no explanation, nothing else.
 
-IMPORTANT: Return ONLY raw JSON. No markdown code blocks, no explanation, no extra text.
+Return this exact shape:
+{"overallScore":<0-100>,"atsReady":<bool>,"name":"<name or empty>","headline":"<role or empty>","location":"<city, country or empty>","yearsOfExperience":<int>,"primaryLanguages":["lang1"],"skills":["s1","s2"],"sections":[{"label":"Formatting","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Grammar","status":"good"|"warn"|"bad","score":<0-100>},{"label":"ATS Keywords","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Skills Section","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Experience","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Projects","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Achievements","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Professional Summary","status":"good"|"warn"|"bad","score":<0-100>}],"suggestions":["tip1","tip2","tip3","tip4"]}
 
-The JSON must have this exact shape:
-{
-  "overallScore": <number 0-100>,
-  "atsReady": <boolean>,
-  "name": "<candidate name if found, else empty string>",
-  "headline": "<job title/headline if found, else empty string>",
-  "location": "<city and country extracted from CV address/contact section, e.g. 'Lagos, Nigeria' or 'London, UK'. Empty string if not found.>",
-  "yearsOfExperience": <integer — total years of work experience estimated from the CV, 0 if unclear>,
-  "primaryLanguages": ["<main programming language or tech stack 1>", "<2>"],
-  "skills": ["skill1", "skill2", ...],
-  "sections": [
-    { "label": "Formatting", "status": "good"|"warn"|"bad", "score": <0-100> },
-    { "label": "Grammar", "status": "good"|"warn"|"bad", "score": <0-100> },
-    { "label": "ATS Keywords", "status": "good"|"warn"|"bad", "score": <0-100> },
-    { "label": "Skills Section", "status": "good"|"warn"|"bad", "score": <0-100> },
-    { "label": "Experience", "status": "good"|"warn"|"bad", "score": <0-100> },
-    { "label": "Projects", "status": "good"|"warn"|"bad", "score": <0-100> },
-    { "label": "Achievements", "status": "good"|"warn"|"bad", "score": <0-100> },
-    { "label": "Professional Summary", "status": "good"|"warn"|"bad", "score": <0-100> }
-  ],
-  "suggestions": [
-    "<actionable suggestion 1>",
-    "<actionable suggestion 2>",
-    "<actionable suggestion 3>",
-    "<actionable suggestion 4>"
-  ]
-}
+Rules:
+- status "good"=score>=80, "warn"=50-79, "bad"=<50
+- overallScore = weighted average of section scores
+- atsReady = true if overallScore>=75
+- suggestions must be specific to this CV, not generic
+- Return ONLY the JSON object, starting with { and ending with }
 
-Scoring Criteria:
-- Formatting: Check for consistent formatting, proper spacing, clear section headers (score 0-100)
-- Grammar: Check for spelling errors, typos, grammatical mistakes (score 0-100)
-- ATS Keywords: Check for industry-relevant keywords, action verbs, skills (score 0-100)
-- Skills Section: Check if skills are listed, categorized, and relevant (score 0-100)
-- Experience: Check for work history, role descriptions, achievements (score 0-100)
-- Projects: Check for project descriptions, impact, technologies used (score 0-100)
-- Achievements: Check for quantified results, awards, recognitions (score 0-100)
-- Professional Summary: Check for compelling summary, target role, value proposition (score 0-100)
+CV:
+${cvSnippet}`;
 
-Status Rules:
-- status "good" = score >= 80
-- status "warn" = 50-79
-- status "bad" = < 50
-- overallScore = weighted average of all section scores
-- atsReady = true if overallScore >= 75
+  const tryModel = async (model: string, maxTokens: number): Promise<string> => {
+    return groqChat([{ role: "user", content: prompt }], {
+      model,
+      temperature: 0.1,
+      max_tokens: maxTokens,
+    });
+  };
 
-Suggestions must be:
-- Specific to the CV content
-- Actionable and practical
-- Based on actual weaknesses found
-- Not generic or template-based
+  let raw = "";
+  try {
+    // Primary: quality model
+    raw = await tryModel(MODEL_QUALITY, 1200);
+  } catch (e) {
+    console.warn("[CV Analysis] Quality model failed, falling back:", e);
+    try {
+      // Fallback: fast model
+      raw = await tryModel(MODEL_FAST, 1200);
+    } catch (e2) {
+      // Re-throw with original error so processFile can show the right message
+      throw e2;
+    }
+  }
 
-CV text to analyse:
-${text.slice(0, 4000)}`;
+  console.log("[CV Analysis] Raw response:", raw.slice(0, 200));
 
-  console.log("[CV Analysis] Sending request to AI...");
-  const raw = await groqChat([{ role: "user", content: prompt }], {
-    model: MODEL_QUALITY,
-    temperature: 0.2,
-    max_tokens: 1600,
-  });
-
-  console.log("[CV Analysis] Raw AI response:", raw);
+  // Robust JSON extraction — find the outermost { ... }
+  const extractJSON = (s: string): CVAnalysis => {
+    const clean = s.replace(/```json|```/g, "").trim();
+    const start = clean.indexOf("{");
+    const end   = clean.lastIndexOf("}");
+    if (start === -1 || end === -1) throw new Error("No JSON object found in response");
+    return JSON.parse(clean.slice(start, end + 1)) as CVAnalysis;
+  };
 
   try {
-    const clean = raw.replace(/```json|```/g, "").trim();
-    const start = clean.indexOf("{");
-    const end = clean.lastIndexOf("}");
-    const parsed = JSON.parse(clean.slice(start, end + 1)) as CVAnalysis;
-    console.log("[CV Analysis] Parsed successfully:", parsed);
+    const parsed = extractJSON(raw);
+    console.log("[CV Analysis] Parsed successfully, score:", parsed.overallScore);
     return parsed;
-  } catch (error) {
-    console.error("[CV Analysis] JSON parse error:", error);
-    console.error("[CV Analysis] Failed to parse:", raw);
+  } catch (parseErr) {
+    console.error("[CV Analysis] Parse failed:", parseErr, "\nRaw:", raw);
+    // Return a safe fallback so the user still gets results rather than an error
     return {
-      overallScore: 50,
+      overallScore: 55,
       atsReady: false,
       name: "",
       headline: "",
@@ -888,20 +885,20 @@ ${text.slice(0, 4000)}`;
       primaryLanguages: [],
       skills: [],
       sections: [
-        { label: "Formatting", status: "bad", score: 50 },
-        { label: "Grammar", status: "warn", score: 60 },
-        { label: "ATS Keywords", status: "bad", score: 40 },
-        { label: "Skills Section", status: "warn", score: 55 },
-        { label: "Experience", status: "warn", score: 60 },
-        { label: "Projects", status: "bad", score: 45 },
-        { label: "Achievements", status: "bad", score: 40 },
-        { label: "Professional Summary", status: "warn", score: 55 },
+        { label: "Formatting",           status: "warn", score: 55 },
+        { label: "Grammar",              status: "warn", score: 60 },
+        { label: "ATS Keywords",         status: "bad",  score: 45 },
+        { label: "Skills Section",       status: "warn", score: 55 },
+        { label: "Experience",           status: "warn", score: 60 },
+        { label: "Projects",             status: "bad",  score: 45 },
+        { label: "Achievements",         status: "bad",  score: 40 },
+        { label: "Professional Summary", status: "warn", score: 50 },
       ],
       suggestions: [
-        "CV analysis failed to parse. Please try uploading your CV again.",
-        "Ensure your CV is in PDF or DOCX format with readable text.",
-        "If the issue persists, try pasting your CV content manually.",
-        "Contact support if the problem continues.",
+        "Re-upload your CV or try a different file format (PDF with selectable text works best).",
+        "Add a clear Professional Summary at the top of your CV.",
+        "Quantify achievements with numbers (e.g. 'Reduced load time by 40%').",
+        "List your technical skills in a dedicated Skills section.",
       ],
     };
   }

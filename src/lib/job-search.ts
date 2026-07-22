@@ -135,14 +135,18 @@ Rules:
   try {
     const clean = raw.replace(/```json|```/g, "").trim();
     const start = clean.indexOf("[");
-    const end   = clean.lastIndexOf("]");
+    const end = clean.lastIndexOf("]");
+    if (start === -1 || end === -1 || start > end) {
+      throw new Error("Unable to locate JSON array in job listing response");
+    }
     const parsed = JSON.parse(clean.slice(start, end + 1)) as Omit<JobListing, "sources">[];
 
     return parsed.map((j) => ({
       ...j,
       sources: buildSources(j.title, j.location === "Remote" ? location : j.location),
     }));
-  } catch {
+  } catch (error) {
+    console.warn("[generateJobListings] parse failed, using fallback listings:", error);
     return getFallbackListings(role, location);
   }
 }

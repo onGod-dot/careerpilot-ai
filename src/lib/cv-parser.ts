@@ -4,22 +4,26 @@
  * Uses only browser-native APIs — no extra npm packages required.
  */
 
-export async function extractTextFromFile(file: File): Promise<string> {
+export async function extractTextFromFile(file: File, onProgress?: (percent: number) => void): Promise<string> {
   if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
-    return extractFromPdf(file);
+    return extractFromPdf(file, onProgress);
   }
   if (
     file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     file.name.endsWith(".docx")
   ) {
-    return extractFromDocx(file);
+    return extractFromDocx(file, onProgress);
+  }
+  if (file.name.endsWith(".doc") || file.name.endsWith(".DOC")) {
+    throw new Error(`.doc files are not supported. Please upload PDF or DOCX.`);
   }
   // Fallback: plain text
+  onProgress?.(100);
   return file.text();
 }
 
 /** Extract text from PDF using pdf.js loaded from CDN */
-async function extractFromPdf(file: File): Promise<string> {
+async function extractFromPdf(file: File, onProgress?: (percent: number) => void): Promise<string> {
   try {
     // Dynamically load pdf.js from CDN
     const pdfjsLib = await loadPdfJs();
@@ -33,11 +37,12 @@ async function extractFromPdf(file: File): Promise<string> {
         .map((item: { str?: string }) => item.str ?? "")
         .join(" ");
       pages.push(text);
+      onProgress?.(Math.min(90, Math.round((i / pdf.numPages) * 80 + 10)));
     }
+    onProgress?.(100);
     return pages.join("\n\n");
-  } catch {
-    // If pdf.js fails, return a descriptive placeholder so AI can still respond
-    return `[PDF file: ${file.name}] — could not extract text client-side. Please paste your CV content manually.`;
+  } catch (error) {
+    throw new Error(`Could not extract text from PDF ${file.name}. Please paste your CV content manually or try a different file format.`);
   }
 }
 
@@ -61,7 +66,7 @@ interface PdfDocument {
 }
 
 /** Extract text from DOCX using raw XML parsing */
-async function extractFromDocx(file: File): Promise<string> {
+async function extractFromDocx(file: File, onProgress?: (percent: number) => void): Promise<string> {
   try {
     const JSZip = await loadJSZip();
     const arrayBuffer = await file.arrayBuffer();
@@ -80,9 +85,10 @@ async function extractFromDocx(file: File): Promise<string> {
       .replace(/&#39;/g, "'")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
+    onProgress?.(100);
     return text;
-  } catch {
-    return `[DOCX file: ${file.name}] — could not extract text client-side. Please paste your CV content manually.`;
+  } catch (error) {
+    throw new Error(`Could not extract text from DOCX ${file.name}. Please paste your CV content manually or try a different file format.`);
   }
 }
 

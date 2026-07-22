@@ -15,7 +15,7 @@ import {
 import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { extractTextFromFile } from "@/lib/cv-parser";
-import { groqChat, MODEL_QUALITY } from "@/lib/groq";
+import { groqChat, MODEL_QUALITY, MODEL_FAST } from "@/lib/groq";
 import { stripMarkdown } from "@/lib/format";
 import {
   saveCVText,
@@ -77,7 +77,16 @@ function CVPage() {
     setStage("uploading");
     setProgress(0);
     try {
-      const text = await extractTextFromFile(file);
+      const text = await extractTextFromFile(file, (p) => setProgress(p));
+
+      if (!text || text.trim().length < 50) {
+        toast.error("Could not extract readable text from this file. Try a different CV format or paste the text manually.");
+        setStage("empty");
+        setProgress(0);
+        return;
+      }
+
+      console.log("[CV] Extracted text length:", text.length);
       setCvText(text);
       saveCVText(text, file.name);
       setStage("analysing");
@@ -105,7 +114,8 @@ function CVPage() {
     } catch (e) {
       console.error(e);
       clearInterval(progressIntervalRef.current!);
-      toast.error("Analysis failed. Please try again.");
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Analysis failed: ${msg.includes("429") ? "Rate limit reached." : msg}`);
       setStage("empty");
       setProgress(0);
     }
@@ -154,7 +164,7 @@ function CVPage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,.docx,.doc,.txt"
+        accept=".pdf,.docx,.txt"
         className="hidden"
         onChange={handleFileInput}
       />
@@ -482,11 +492,21 @@ CV text to analyse:
 ${text.slice(0, 4000)}`;
 
   console.log("[CV Analysis] Sending request to AI...");
-  const raw = await groqChat([{ role: "user", content: prompt }], {
-    model: MODEL_QUALITY,
-    temperature: 0.2,
-    max_tokens: 2000,
-  });
+  let raw = "";
+  try {
+    raw = await groqChat([{ role: "user", content: prompt }], {
+      model: MODEL_QUALITY,
+      temperature: 0.2,
+      max_tokens: 2000,
+    });
+  } catch (primaryError) {
+    console.warn("[CV Analysis] Primary model failed, falling back to fast model:", primaryError);
+    raw = await groqChat([{ role: "user", content: prompt }], {
+      model: MODEL_FAST,
+      temperature: 0.25,
+      max_tokens: 2000,
+    });
+  }
 
   console.log("[CV Analysis] Raw AI response:", raw);
 
@@ -563,9 +583,18 @@ Do NOT add fake experience or fabricate information — only improve presentatio
 Original CV:
 ${originalText.slice(0, 3500)}`;
 
-  return groqChat([{ role: "user", content: prompt }], {
-    model: MODEL_QUALITY,
-    temperature: 0.5,
-    max_tokens: 2000,
-  });
+  try {
+    return await groqChat([{ role: "user", content: prompt }], {
+      model: MODEL_QUALITY,
+      temperature: 0.5,
+      max_tokens: 2000,
+    });
+  } catch (error) {
+    console.warn("[generateImprovedCV] quality model failed, falling back to fast model:", error);
+    return groqChat([{ role: "user", content: prompt }], {
+      model: MODEL_FAST,
+      temperature: 0.6,
+      max_tokens: 2000,
+    });
+  }
 }

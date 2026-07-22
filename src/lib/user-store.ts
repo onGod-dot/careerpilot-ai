@@ -29,13 +29,19 @@ const KEY_PROFILE = "cp_profile";
 const KEY_ACTIVITY = "cp_activity";
 const KEY_SNAPSHOTS = "cp_snapshots";
 
+function canUseSessionStorage(): boolean {
+  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+}
+
 // ─── Profile ─────────────────────────────────────────────────────────────────
 
 export function saveProfile(p: UserProfile) {
+  if (!canUseSessionStorage()) return;
   sessionStorage.setItem(KEY_PROFILE, JSON.stringify(p));
 }
 
 export function loadProfile(): UserProfile {
+  if (!canUseSessionStorage()) return { name: "", email: "", location: "", headline: "", initials: "" };
   try {
     const raw = sessionStorage.getItem(KEY_PROFILE);
     if (raw) return JSON.parse(raw) as UserProfile;
@@ -65,6 +71,7 @@ export function toShortName(name: string): string {
 // ─── Activity feed ────────────────────────────────────────────────────────────
 
 export function loadActivity(): ActivityEntry[] {
+  if (!canUseSessionStorage()) return [];
   try {
     const raw = sessionStorage.getItem(KEY_ACTIVITY);
     if (raw) return JSON.parse(raw) as ActivityEntry[];
@@ -72,9 +79,17 @@ export function loadActivity(): ActivityEntry[] {
   return [];
 }
 
+function generateId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `cp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function pushActivity(title: string, detail: string) {
+  if (!canUseSessionStorage()) return;
   const entries = loadActivity();
-  entries.unshift({ id: crypto.randomUUID(), title, detail, ts: Date.now() });
+  entries.unshift({ id: generateId(), title, detail, ts: Date.now() });
   sessionStorage.setItem(KEY_ACTIVITY, JSON.stringify(entries.slice(0, 20)));
 }
 
@@ -93,6 +108,7 @@ export function relativeTime(ts: number): string {
 // ─── Score history ────────────────────────────────────────────────────────────
 
 export function loadSnapshots(): ScoreSnapshot[] {
+  if (!canUseSessionStorage()) return [];
   try {
     const raw = sessionStorage.getItem(KEY_SNAPSHOTS);
     if (raw) return JSON.parse(raw) as ScoreSnapshot[];
@@ -101,6 +117,7 @@ export function loadSnapshots(): ScoreSnapshot[] {
 }
 
 export function pushSnapshot(snap: Omit<ScoreSnapshot, "ts">) {
+  if (!canUseSessionStorage()) return;
   const snaps = loadSnapshots();
   snaps.push({ ...snap, ts: Date.now() });
   sessionStorage.setItem(KEY_SNAPSHOTS, JSON.stringify(snaps.slice(-12)));

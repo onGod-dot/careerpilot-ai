@@ -72,13 +72,16 @@ Rules:
     const clean = raw.replace(/```json|```/g, "").trim();
     const start = clean.indexOf("[");
     const end = clean.lastIndexOf("]");
+    if (start === -1 || end === -1 || start > end) {
+      throw new Error("Unable to locate JSON array in recommendation response");
+    }
     const parsed = JSON.parse(clean.slice(start, end + 1)) as Omit<VideoRec, "url">[];
     return parsed.map((v) => ({
       ...v,
       url: `https://www.youtube.com/results?search_query=${encodeURIComponent(v.query)}`,
     }));
-  } catch {
-    // fallback set if parsing fails
+  } catch (error) {
+    console.warn("[getVideoRecommendations] parse failed, using fallback recommendations:", error);
     return getFallbackRecs(role, analysis);
   }
 }

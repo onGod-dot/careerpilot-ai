@@ -1,6 +1,9 @@
 import { createStart, createMiddleware } from "@tanstack/react-start";
 
+import { installCryptoCompat } from "./lib/crypto-compat";
 import { renderErrorPage } from "./lib/error-page";
+
+installCryptoCompat();
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {

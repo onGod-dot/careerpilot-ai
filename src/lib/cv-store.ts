@@ -25,12 +25,18 @@ export interface CVAnalysis {
 
 const SESSION_KEY = "careerpilot_cv";
 
+function canUseSessionStorage(): boolean {
+  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+}
+
 export function saveCVText(text: string, fileName: string) {
+  if (!canUseSessionStorage()) return;
   sessionStorage.setItem(SESSION_KEY + "_text", text);
   sessionStorage.setItem(SESSION_KEY + "_name", fileName);
 }
 
 export function loadCVText(): { text: string; fileName: string } | null {
+  if (!canUseSessionStorage()) return null;
   const text = sessionStorage.getItem(SESSION_KEY + "_text");
   const fileName = sessionStorage.getItem(SESSION_KEY + "_name");
   if (!text || !fileName) return null;
@@ -38,10 +44,12 @@ export function loadCVText(): { text: string; fileName: string } | null {
 }
 
 export function saveCVAnalysis(analysis: CVAnalysis) {
+  if (!canUseSessionStorage()) return;
   sessionStorage.setItem(SESSION_KEY + "_analysis", JSON.stringify(analysis));
 }
 
 export function loadCVAnalysis(): CVAnalysis | null {
+  if (!canUseSessionStorage()) return null;
   const raw = sessionStorage.getItem(SESSION_KEY + "_analysis");
   if (!raw) return null;
   try {
@@ -52,6 +60,7 @@ export function loadCVAnalysis(): CVAnalysis | null {
 }
 
 export function clearCV() {
+  if (!canUseSessionStorage()) return;
   sessionStorage.removeItem(SESSION_KEY + "_text");
   sessionStorage.removeItem(SESSION_KEY + "_name");
   sessionStorage.removeItem(SESSION_KEY + "_analysis");

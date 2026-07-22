@@ -13,15 +13,22 @@ export type WizardStep =
 
 const KEY = "careerpilot_wizard_step";
 
+function canUseSessionStorage(): boolean {
+  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+}
+
 export function saveWizardStep(step: WizardStep) {
+  if (!canUseSessionStorage()) return;
   sessionStorage.setItem(KEY, step);
 }
 
 export function loadWizardStep(): WizardStep {
+  if (!canUseSessionStorage()) return "upload";
   return (sessionStorage.getItem(KEY) as WizardStep) ?? "upload";
 }
 
 export function clearWizard() {
+  if (!canUseSessionStorage()) return;
   sessionStorage.removeItem(KEY);
 }
 
