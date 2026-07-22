@@ -180,6 +180,7 @@ function LearningPage() {
       {/* ── Video Tutorials ── */}
       <section className="mb-10">
         <h3 className="mb-5 text-sm font-semibold text-muted-foreground uppercase tracking-wider">Video Tutorials</h3>
+        <p className="mb-4 text-xs text-muted-foreground">Watch these videos directly on this page to improve your career skills.</p>
         <div className="grid gap-6 sm:grid-cols-2">
           {[
             {
