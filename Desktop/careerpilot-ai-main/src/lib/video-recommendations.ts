@@ -8,10 +8,26 @@
 import { groqChat, MODEL_FAST } from "./groq";
 import { type CVAnalysis } from "./cv-store";
 
+// Helper function to extract YouTube video ID from various URL formats
+export function extractYouTubeId(url: string): string | null {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+    /youtube\.com\/watch\?.*v=([^&\n?#]+)/,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+  return null;
+}
+
 export interface VideoRec {
   title: string;       // descriptive title shown in UI
-  query: string;       // the actual YouTube search query
-  url: string;         // direct YouTube search URL
+  query: string;       // the actual YouTube search query (fallback)
+  url: string;         // direct YouTube video URL or search URL
   reason: string;      // why this is relevant to this CV
   tag: string;         // skill / topic tag  e.g. "Docker" "System Design"
   level: "Beginner" | "Intermediate" | "Advanced";
@@ -43,11 +59,14 @@ Candidate profile:
 Generate exactly 6 highly specific YouTube video recommendations to help this person improve and get hired.
 Focus on: ${weakSections || "general career skills"}.
 
+IMPORTANT: For each recommendation, try to provide the ACTUAL YouTube video URL if you know a specific video. If you don't know a specific video, provide a search query.
+
 Return ONLY a JSON array (no markdown, no extra text):
 [
   {
     "title": "Short descriptive title shown to user (max 60 chars)",
-    "query": "exact YouTube search query to find this video",
+    "query": "YouTube search query (only if you don't have a specific video URL)",
+    "url": "ACTUAL YouTube video URL (e.g. https://www.youtube.com/watch?v=VIDEO_ID) if you know a specific video, otherwise omit this field",
     "reason": "One sentence: why this video matters for their specific profile",
     "tag": "Skill or topic tag (e.g. Docker, React, System Design, ATS Resume)",
     "level": "Beginner" | "Intermediate" | "Advanced",
@@ -57,6 +76,7 @@ Return ONLY a JSON array (no markdown, no extra text):
 
 Rules:
 - Mix beginner and intermediate levels
+- Prioritize providing actual YouTube video URLs when you know specific high-quality videos
 - Use specific, searchable YouTube queries (channel names help: e.g. "Fireship Docker tutorial", "TechLead resume tips")
 - Make reasons specific to their weak areas, not generic
 - Cover a mix of: technical skills, interview prep, CV improvement
@@ -71,10 +91,10 @@ Rules:
     const clean = raw.replace(/```json|```/g, "").trim();
     const start = clean.indexOf("[");
     const end = clean.lastIndexOf("]");
-    const parsed = JSON.parse(clean.slice(start, end + 1)) as Omit<VideoRec, "url">[];
+    const parsed = JSON.parse(clean.slice(start, end + 1)) as (Omit<VideoRec, "url"> & { url?: string })[];
     return parsed.map((v) => ({
       ...v,
-      url: `https://www.youtube.com/results?search_query=${encodeURIComponent(v.query)}`,
+      url: v.url || `https://www.youtube.com/results?search_query=${encodeURIComponent(v.query)}`,
     }));
   } catch {
     // fallback set if parsing fails

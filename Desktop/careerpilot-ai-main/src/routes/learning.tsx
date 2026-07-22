@@ -7,7 +7,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { loadCVAnalysis } from "@/lib/cv-store";
-import { getVideoRecommendations, type VideoRec } from "@/lib/video-recommendations";
+import { getVideoRecommendations, extractYouTubeId, type VideoRec } from "@/lib/video-recommendations";
 import { stripMarkdown } from "@/lib/format";
 
 export const Route = createFileRoute("/learning")({
@@ -118,41 +118,64 @@ function LearningPage() {
         </div>
 
         {videos.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {videos.map((v, i) => (
-              <a
-                key={i}
-                href={v.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex flex-col rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-primary/5"
-              >
-                {/* thumbnail placeholder */}
-                <div className="relative mb-3 flex h-28 items-center justify-center overflow-hidden rounded-lg bg-muted">
-                  <div className="grid h-10 w-10 place-items-center rounded-full bg-[#FF0000] text-white transition-transform group-hover:scale-110">
-                    <Play className="h-4 w-4 fill-white" />
+          <div className="grid gap-6 sm:grid-cols-2">
+            {videos.map((v, i) => {
+              const videoId = extractYouTubeId(v.url);
+              const isYouTubeVideo = videoId !== null;
+
+              return (
+                <div key={i} className="flex flex-col">
+                  <div className="mb-3 flex items-start justify-between gap-2">
+                    <h4 className="text-sm font-medium leading-snug line-clamp-2">{v.title}</h4>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${levelColor[v.level] ?? "bg-secondary text-foreground"}`}>
+                      {v.level}
+                    </span>
                   </div>
-                  <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                    {v.duration}
-                  </span>
-                  <span className={`absolute top-2 left-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${levelColor[v.level] ?? "bg-secondary text-foreground"}`}>
-                    {v.level}
-                  </span>
-                </div>
 
-                <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <span className="rounded-md border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {v.tag}
-                  </span>
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
+                  {isYouTubeVideo ? (
+                    <div className="relative w-full overflow-hidden rounded-xl border border-border bg-card">
+                      <div className="aspect-video">
+                        <iframe
+                          src={`https://www.youtube.com/embed/${videoId}`}
+                          title={v.title}
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          allowFullScreen
+                          className="h-full w-full border-0"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card p-8 text-center">
+                      <Youtube className="mb-3 h-8 w-8 text-muted-foreground" />
+                      <p className="mb-4 text-sm text-muted-foreground">
+                        This video cannot be embedded directly
+                      </p>
+                      <a
+                        href={v.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open on YouTube
+                      </a>
+                    </div>
+                  )}
 
-                <p className="text-sm font-medium leading-snug line-clamp-2">{v.title}</p>
-                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground line-clamp-2">
-                  {stripMarkdown(v.reason)}
-                </p>
-              </a>
-            ))}
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-md border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        {v.tag}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{v.duration}</span>
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2">
+                      {stripMarkdown(v.reason)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div
