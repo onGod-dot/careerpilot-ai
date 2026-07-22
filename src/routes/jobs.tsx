@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell, PageHeader } from "@/components/app-shell";
 import {
-  MapPin, Building2, Sparkles, ArrowRight, X, ExternalLink,
+  MapPin, Building2, Sparkles, X, ExternalLink,
   Briefcase, DollarSign, Globe, Search, Loader2, RefreshCw,
   ChevronDown, ChevronUp,
 } from "lucide-react";
@@ -30,6 +30,16 @@ const BOARD_STYLES: Record<string, { bg: string; text: string }> = {
   Reed:        { bg: "bg-[#CC0000]/10", text: "text-[#CC0000]" },
   Glassdoor:   { bg: "bg-[#0CAA41]/10", text: "text-[#0CAA41]" },
   Adzuna:      { bg: "bg-[#FF6B00]/10", text: "text-[#FF6B00]" },
+};
+
+// Simple emoji icons so we don't need extra icon packages
+const BOARD_ICONS: Record<string, string> = {
+  LinkedIn:      "in",
+  "Google Jobs": "G",
+  Indeed:        "id",
+  Reed:          "R",
+  Glassdoor:     "GD",
+  Adzuna:        "Az",
 };
 
 function BoardBadge({ src }: { src: JobSource }) {
@@ -197,91 +207,102 @@ function JobsPage() {
         </div>
       )}
 
-      {/* Job table */}
+      {/* Job cards */}
       {fetched && jobs.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/50 text-xs uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-5 py-3 text-left font-medium">Company & Role</th>
-                <th className="px-5 py-3 text-left font-medium">Location</th>
-                <th className="px-5 py-3 text-left font-medium">Match</th>
-                <th className="px-5 py-3 text-left font-medium">Salary</th>
-                <th className="px-5 py-3 text-left font-medium">Skills</th>
-                <th className="px-5 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {jobs.map((j, i) => (
-                <>
-                  <tr
-                    key={i}
-                    className="cursor-pointer hover:bg-secondary/30"
-                    onClick={() => setSelected(j)}
-                  >
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-secondary text-xs font-semibold">
-                          {j.company[0]}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{j.title}</div>
-                          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                            <Building2 className="h-3 w-3" /> {j.company}
-                          </div>
-                        </div>
+        <div className="space-y-4">
+          {jobs.map((j, i) => {
+            const isOpen = expanded.has(i);
+            return (
+              <div key={i} className="overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20">
+                {/* ── Card header ── */}
+                <div className="flex items-start gap-4 p-5">
+                  {/* Avatar */}
+                  <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-secondary text-sm font-bold">
+                    {j.company[0]}
+                  </div>
+
+                  {/* Core info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold leading-tight">{j.title}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1">
+                          <Building2 className="h-3 w-3" />{j.company}
+                        </p>
                       </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-1 text-muted-foreground">
-                        <MapPin className="h-3.5 w-3.5" /> {j.location}
-                        {j.remote && (
-                          <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                            Remote
-                          </span>
-                        )}
+                      {/* Match badge */}
+                      <div className="shrink-0 text-right">
+                        <span className={`text-xl font-bold ${j.matchScore >= 80 ? "text-primary" : j.matchScore >= 65 ? "text-[color:var(--color-warning)]" : "text-muted-foreground"}`}>
+                          {j.matchScore}%
+                        </span>
+                        <p className="text-[10px] text-muted-foreground">match</p>
                       </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="h-1 w-16 rounded-full bg-muted">
-                          <div
-                            className={`h-1 rounded-full ${j.matchScore >= 80 ? "bg-primary" : j.matchScore >= 65 ? "bg-[color:var(--color-warning)]" : "bg-muted-foreground/50"}`}
-                            style={{ width: `${j.matchScore}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-medium tabular-nums">{j.matchScore}%</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 tabular-nums text-muted-foreground">{j.salaryRange}</td>
-                    <td className="px-5 py-4">
-                      <div className="flex flex-wrap gap-1">
-                        {j.requiredSkills.slice(0, 3).map((s) => (
-                          <span
-                            key={s}
-                            className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                          >
-                            {s}
-                          </span>
-                        ))}
-                        {j.requiredSkills.length > 3 && (
-                          <span className="text-[11px] text-muted-foreground">+{j.requiredSkills.length - 3}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setSelected(j); }}
-                        className="inline-flex items-center gap-1 rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent"
+                    </div>
+
+                    {/* Match bar */}
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={`h-1.5 rounded-full transition-all ${j.matchScore >= 80 ? "bg-primary" : j.matchScore >= 65 ? "bg-[color:var(--color-warning)]" : "bg-muted-foreground/40"}`}
+                        style={{ width: `${j.matchScore}%` }}
+                      />
+                    </div>
+
+                    {/* Meta row */}
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{j.location}</span>
+                      <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{j.salaryRange}</span>
+                      {j.remote && (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Remote</span>
+                      )}
+                    </div>
+
+                    {/* Skills */}
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {j.requiredSkills.map((s) => (
+                        <span key={s} className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Apply links — always visible ── */}
+                <div className="border-t border-border bg-secondary/20 px-5 py-3">
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Apply on</p>
+                  <div className="flex flex-wrap gap-2">
+                    {j.sources.map((src) => (
+                      <a
+                        key={src.board}
+                        href={src.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold transition-all hover:scale-[1.03] hover:shadow-sm ${(BOARD_STYLES[src.board] ?? { bg: "bg-secondary", text: "text-foreground" }).bg} ${(BOARD_STYLES[src.board] ?? { bg: "bg-secondary", text: "text-foreground" }).text}`}
                       >
-                        View <ArrowRight className="h-3 w-3" />
-                      </button>
-                    </td>
-                  </tr>
-                </>
-              ))}
-            </tbody>
-          </table>
+                        {BOARD_ICONS[src.board] && <span className="text-sm">{BOARD_ICONS[src.board]}</span>}
+                        {src.board}
+                        <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Expandable description ── */}
+                <div className="border-t border-border">
+                  <button
+                    onClick={() => toggleExpand(i)}
+                    className="flex w-full items-center justify-between px-5 py-3 text-xs font-medium text-muted-foreground hover:bg-secondary/30 transition-colors"
+                  >
+                    <span>{isOpen ? "Hide details" : "Show role details"}</span>
+                    {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </button>
+                  {isOpen && (
+                    <div className="border-t border-border px-5 pb-5 pt-3">
+                      <p className="text-sm leading-relaxed text-muted-foreground">{j.description}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -400,18 +421,26 @@ function JobsPage() {
             </div>
 
             {/* Footer */}
-            <div className="border-t border-border p-4 flex gap-2">
-              <a
-                href={selected.sources[0]?.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              >
-                Search on LinkedIn <ExternalLink className="h-3.5 w-3.5" />
-              </a>
+            <div className="border-t border-border p-4 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Apply directly on</p>
+              <div className="flex flex-wrap gap-2">
+                {selected.sources.map((src) => (
+                  <a
+                    key={src.board}
+                    href={src.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold transition-colors hover:opacity-80 ${(BOARD_STYLES[src.board] ?? { bg: "bg-secondary", text: "text-foreground" }).bg} ${(BOARD_STYLES[src.board] ?? { bg: "bg-secondary", text: "text-foreground" }).text}`}
+                  >
+                    <span className="font-bold">{BOARD_ICONS[src.board]}</span>
+                    {src.board}
+                    <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                  </a>
+                ))}
+              </div>
               <button
                 onClick={() => setSelected(null)}
-                className="rounded-lg border border-input bg-background px-4 py-2.5 text-sm font-medium hover:bg-accent"
+                className="w-full rounded-lg border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent transition-colors"
               >
                 Close
               </button>
