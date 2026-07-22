@@ -11,20 +11,22 @@ import {
   X,
   RotateCcw,
   Sparkles,
+  User,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { groqChat, MODEL_BALANCED } from "@/lib/groq";
+import { groqChat, MODEL_BALANCED, MODEL_QUALITY } from "@/lib/groq";
 import { stripMarkdown } from "@/lib/format";
 import { pushActivity, pushSnapshot, loadSnapshots } from "@/lib/user-store";
+import { loadCVAnalysis } from "@/lib/cv-store";
 
 export const Route = createFileRoute("/practice")({
   head: () => ({
     meta: [
       { title: "Practice — CareerPilot AI" },
-      { name: "description", content: "Aptitude tests and coding assessments with AI review." },
+      { name: "description", content: "Aptitude tests and coding assessments tailored to your CV." },
       { property: "og:title", content: "Practice — CareerPilot AI" },
-      { property: "og:description", content: "Sharpen your skills with adaptive practice." },
+      { property: "og:description", content: "Sharpen your skills with adaptive, CV-personalised practice." },
     ],
   }),
   component: PracticePage,
@@ -35,8 +37,9 @@ export const Route = createFileRoute("/practice")({
 interface AptitudeQuestion {
   question: string;
   options: string[];
-  answer: number; // index
+  answer: number; // 0-based index
   explanation: string;
+  category: "logical" | "numerical" | "verbal" | "domain";
 }
 
 interface CodingProblem {
@@ -45,6 +48,7 @@ interface CodingProblem {
   description: string;
   examples: { input: string; output: string }[];
   starterCode: string;
+  language: string;
 }
 
 interface SessionResult {
@@ -69,44 +73,21 @@ type ActiveSession =
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 function PracticePage() {
+  const cv = loadCVAnalysis();
+  const role   = cv?.headline || "Software Engineer";
+  const skills = (cv?.skills ?? []).slice(0, 8).join(", ") || "general programming";
+  const years  = cv?.yearsOfExperience ?? 2;
+  const langs  = (cv?.primaryLanguages ?? []).join(", ") || "JavaScript";
+
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [loading, setLoading] = useState<"aptitude" | "coding" | null>(null);
-  const [history, setHistory] = useState<SessionResult[]>([
-    {
-      type: "coding",
-      title: "Two Sum • Easy",
-      score: "Passed",
-      feedback: "Runtime 62ms • Memory 42MB",
-      time: "2h ago",
-    },
-    {
-      type: "coding",
-      title: "Longest Substring • Medium",
-      score: "Needs work",
-      feedback: "O(n²) → recommend O(n)",
-      time: "Yesterday",
-    },
-    {
-      type: "aptitude",
-      title: "Verbal Reasoning Set 3",
-      score: "78%",
-      feedback: "Weakness: analogies",
-      time: "2 days ago",
-    },
-  ]);
+  const [history, setHistory] = useState<SessionResult[]>([]);
 
   const startAptitude = async () => {
     setLoading("aptitude");
     try {
-      const questions = await generateAptitudeQuestions();
-      setActiveSession({
-        type: "aptitude",
-        questions,
-        current: 0,
-        answers: [],
-        done: false,
-        feedback: "",
-      });
+      const questions = await generateAptitudeQuestions(role, skills, years);
+      setActiveSession({ type: "aptitude", questions, current: 0, answers: [], done: false, feedback: "" });
     } catch {
       toast.error("Failed to generate questions. Please try again.");
     } finally {
@@ -117,14 +98,8 @@ function PracticePage() {
   const startCoding = async () => {
     setLoading("coding");
     try {
-      const problem = await generateCodingProblem();
-      setActiveSession({
-        type: "coding",
-        problem,
-        code: problem.starterCode,
-        feedback: "",
-        done: false,
-      });
+      const problem = await generateCodingProblem(role, skills, langs, years);
+      setActiveSession({ type: "coding", problem, code: problem.starterCode, feedback: "", done: false });
     } catch {
       toast.error("Failed to generate problem. Please try again.");
     } finally {
@@ -140,11 +115,7 @@ function PracticePage() {
   if (activeSession?.type === "aptitude") {
     return (
       <AppShell title="Aptitude Test">
-        <AptitudeSession
-          session={activeSession}
-          onUpdate={(s) => setActiveSession(s)}
-          onClose={closeSession}
-        />
+        <AptitudeSession session={activeSession} onUpdate={(s) => setActiveSession(s)} onClose={closeSession} />
       </AppShell>
     );
   }
@@ -152,11 +123,7 @@ function PracticePage() {
   if (activeSession?.type === "coding") {
     return (
       <AppShell title="Coding Assessment">
-        <CodingSession
-          session={activeSession}
-          onUpdate={(s) => setActiveSession(s)}
-          onClose={closeSession}
-        />
+        <CodingSession session={activeSession} onUpdate={(s) => setActiveSession(s)} onClose={closeSession} />
       </AppShell>
     );
   }
@@ -166,24 +133,44 @@ function PracticePage() {
       <PageHeader
         eyebrow="Sharpen"
         title="Practice arenas"
-        description="Choose an arena. Each session ends with detailed AI feedback."
+        description="Every session is tailored to your CV — role, skills, and experience level."
       />
+
+      {/* CV context banner */}
+      {cv && (
+        <div className="mb-5 flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+            <User className="h-4 w-4" />
+          </div>
+          <div className="text-sm">
+            <span className="font-semibold">Personalised for you</span>
+            <span className="text-muted-foreground">
+              {" · "}Questions calibrated for a <span className="text-foreground font-medium">{role}</span> with ~{years} year{years !== 1 ? "s" : ""} of experience.
+              Skills covered: <span className="text-foreground">{skills}</span>.
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         {[
           {
             icon: ClipboardCheck,
             title: "Aptitude Test",
-            desc: "Adaptive quiz across logical, numerical, and verbal reasoning.",
-            meta: "5 questions • ~10 min",
+            desc: cv
+              ? `10 questions mixing logical, numerical, verbal reasoning — plus ${role}-specific domain questions.`
+              : "Adaptive quiz across logical, numerical, and verbal reasoning.",
+            meta: "10 questions · ~15 min",
             action: startAptitude,
             key: "aptitude" as const,
           },
           {
             icon: Code2,
             title: "Coding Assessment",
-            desc: "LeetCode-style problem with instant AI code review.",
-            meta: "1 problem • any language",
+            desc: cv
+              ? `${langs}-focused problem at ${years >= 4 ? "Medium/Hard" : "Easy/Medium"} difficulty — with instant AI code review.`
+              : "LeetCode-style problem with instant AI code review.",
+            meta: "1 problem · any language",
             action: startCoding,
             key: "coding" as const,
           },
@@ -204,13 +191,9 @@ function PracticePage() {
                 className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
               >
                 {loading === c.key ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" /> Generating…
-                  </>
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
                 ) : (
-                  <>
-                    Start session <ArrowRight className="h-4 w-4" />
-                  </>
+                  <>Start session <ArrowRight className="h-4 w-4" /></>
                 )}
               </button>
             </div>
@@ -218,24 +201,26 @@ function PracticePage() {
         ))}
       </div>
 
-      <div className="mt-8 rounded-xl border border-border bg-card p-6">
-        <div className="mb-4 text-sm font-semibold">Recent sessions</div>
-        <ul className="divide-y divide-border">
-          {history.map((r, i) => (
-            <li key={i} className="flex items-center justify-between py-3.5 text-sm">
-              <div>
-                <div className="font-medium">{r.title}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">{r.feedback}</div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground">{r.score}</span>
-                <span className="text-xs text-muted-foreground">{r.time}</span>
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {history.length > 0 && (
+        <div className="mt-8 rounded-xl border border-border bg-card p-6">
+          <div className="mb-4 text-sm font-semibold">Recent sessions</div>
+          <ul className="divide-y divide-border">
+            {history.map((r, i) => (
+              <li key={i} className="flex items-center justify-between py-3.5 text-sm">
+                <div>
+                  <div className="font-medium">{r.title}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{r.feedback}</div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">{r.score}</span>
+                  <span className="text-xs text-muted-foreground">{r.time}</span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </AppShell>
   );
 }
@@ -258,30 +243,21 @@ function AptitudeSession({
   const answer = async (idx: number) => {
     const newAnswers = [...session.answers, idx];
     if (session.current + 1 >= total) {
-      // Done — evaluate
       setEvaluating(true);
       const correct = newAnswers.filter((a, i) => a === session.questions[i].answer).length;
       const pct = Math.round((correct / total) * 100);
       const feedback = await evaluateAptitude(session.questions, newAnswers);
-      onUpdate({ ...session, answers: newAnswers, done: true, feedback });
       setEvaluating(false);
-      // persist activity + snapshot
       pushActivity("Aptitude test completed", `Score: ${pct}% · ${correct}/${total} correct`);
       const lastSnap = loadSnapshots().slice(-1)[0];
       pushSnapshot({ cv: lastSnap?.cv ?? 0, interview: pct, coding: lastSnap?.coding ?? 0 });
-      onClose({
-        type: "aptitude",
-        title: `Aptitude Test`,
-        score: `${pct}%`,
-        feedback,
-        time: "Just now",
-      });
+      onClose({ type: "aptitude", title: "Aptitude Test", score: `${pct}%`, feedback, time: "Just now" });
     } else {
       onUpdate({ ...session, current: session.current + 1, answers: newAnswers });
     }
   };
 
-  if (session.done || evaluating) {
+  if (evaluating) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-border bg-card px-6 py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -291,27 +267,34 @@ function AptitudeSession({
   }
 
   const progress = (session.current / total) * 100;
+  const categoryLabel: Record<AptitudeQuestion["category"], string> = {
+    logical: "Logical Reasoning",
+    numerical: "Numerical Reasoning",
+    verbal: "Verbal Reasoning",
+    domain: "Domain / Role Knowledge",
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <PageHeader eyebrow={`Question ${session.current + 1} of ${total}`} title="Aptitude Test" />
-        <button
-          onClick={() => onClose()}
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
+        <button onClick={() => onClose()} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <X className="h-4 w-4" /> Exit
         </button>
       </div>
 
       <div className="h-1.5 w-full rounded-full bg-muted">
-        <div
-          className="h-1.5 rounded-full bg-primary transition-all"
-          style={{ width: `${progress}%` }}
-        />
+        <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
       </div>
 
       <div className="rounded-xl border border-border bg-card p-8">
+        {q.category && (
+          <div className="mb-3">
+            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
+              {categoryLabel[q.category] ?? q.category}
+            </span>
+          </div>
+        )}
         <div className="mb-6 text-base font-medium leading-relaxed">{q.question}</div>
         <div className="grid gap-3">
           {q.options.map((opt, i) => (
@@ -320,9 +303,7 @@ function AptitudeSession({
               onClick={() => answer(i)}
               className="rounded-lg border border-border bg-background px-4 py-3 text-left text-sm transition-colors hover:border-primary hover:bg-primary/5"
             >
-              <span className="mr-3 font-semibold text-muted-foreground">
-                {["A", "B", "C", "D"][i]}.
-              </span>
+              <span className="mr-3 font-semibold text-muted-foreground">{["A", "B", "C", "D"][i]}.</span>
               {opt}
             </button>
           ))}
@@ -363,11 +344,8 @@ function CodingSession({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <PageHeader eyebrow="Coding" title={session.problem.title} />
-        <button
-          onClick={() => onClose()}
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
+        <PageHeader eyebrow={`Coding · ${session.problem.language}`} title={session.problem.title} />
+        <button onClick={() => onClose()} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <X className="h-4 w-4" /> Exit
         </button>
       </div>
@@ -376,28 +354,21 @@ function CodingSession({
         {/* Problem */}
         <div className="rounded-xl border border-border bg-card p-6">
           <div className="mb-3 flex items-center gap-2">
-            <span
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                diff === "Easy"
-                  ? "bg-primary/10 text-primary"
-                  : diff === "Medium"
-                    ? "bg-[color:var(--color-warning)]/10 text-[color:var(--color-warning)]"
-                    : "bg-destructive/10 text-destructive"
-              }`}
-            >
-              {diff}
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              diff === "Easy" ? "bg-primary/10 text-primary"
+              : diff === "Medium" ? "bg-[color:var(--color-warning)]/10 text-[color:var(--color-warning)]"
+              : "bg-destructive/10 text-destructive"
+            }`}>{diff}</span>
+            <span className="rounded-full border border-border bg-background px-2.5 py-0.5 text-xs text-muted-foreground">
+              {session.problem.language}
             </span>
           </div>
           <p className="text-sm leading-relaxed text-foreground">{session.problem.description}</p>
           <div className="mt-4 space-y-2">
             {session.problem.examples.map((ex, i) => (
               <div key={i} className="rounded-lg bg-secondary/50 p-3 text-xs font-mono">
-                <div>
-                  <span className="text-muted-foreground">Input:</span> {ex.input}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Output:</span> {ex.output}
-                </div>
+                <div><span className="text-muted-foreground">Input:</span> {ex.input}</div>
+                <div><span className="text-muted-foreground">Output:</span> {ex.output}</div>
               </div>
             ))}
           </div>
@@ -419,13 +390,9 @@ function CodingSession({
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
             >
               {submitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Reviewing…
-                </>
+                <><Loader2 className="h-4 w-4 animate-spin" /> Reviewing…</>
               ) : (
-                <>
-                  <CheckCircle2 className="h-4 w-4" /> Submit & get AI review
-                </>
+                <><CheckCircle2 className="h-4 w-4" /> Submit & get AI review</>
               )}
             </button>
           ) : (
@@ -436,17 +403,10 @@ function CodingSession({
               <p className="text-sm text-muted-foreground leading-relaxed">{stripMarkdown(session.feedback)}</p>
               <button
                 onClick={() => {
-                  // persist activity + coding snapshot
                   pushActivity(`Coding: ${session.problem.title}`, `${session.problem.difficulty} · AI reviewed`);
                   const lastSnap = loadSnapshots().slice(-1)[0];
                   pushSnapshot({ cv: lastSnap?.cv ?? 0, interview: lastSnap?.interview ?? 0, coding: 75 });
-                  onClose({
-                    type: "coding",
-                    title: session.problem.title,
-                    score: "Reviewed",
-                    feedback: session.feedback.slice(0, 80),
-                    time: "Just now",
-                  });
+                  onClose({ type: "coding", title: session.problem.title, score: "Reviewed", feedback: session.feedback.slice(0, 80), time: "Just now" });
                 }}
                 className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3.5 py-2 text-sm font-medium hover:bg-accent"
               >
@@ -460,80 +420,177 @@ function CodingSession({
   );
 }
 
-// ─── AI helpers ───────────────────────────────────────────────────────────────
+// ─── AI helpers — all personalised to CV ──────────────────────────────────────
 
-async function generateAptitudeQuestions(): Promise<AptitudeQuestion[]> {
+async function generateAptitudeQuestions(
+  role: string,
+  skills: string,
+  years: number,
+): Promise<AptitudeQuestion[]> {
+  const level = years >= 5 ? "senior" : years >= 2 ? "mid-level" : "junior";
   const raw = await groqChat(
     [
       {
         role: "user",
-        content: `Generate 5 aptitude questions for a software engineering candidate. Mix of: logical reasoning, numerical reasoning, and verbal reasoning.
+        content: `You are a talent assessment specialist generating an aptitude test.
 
-Return ONLY a JSON array (no markdown) with this shape:
+Candidate profile:
+- Role: ${role}
+- Skills: ${skills}
+- Level: ${level} (~${years} years experience)
+
+Generate exactly 10 aptitude questions personalised for this candidate.
+Split them as follows:
+- 3 logical reasoning questions (patterns, sequences, deductions)
+- 2 numerical reasoning questions (data analysis, percentages, ratios)
+- 2 verbal reasoning questions (comprehension, analogies, grammar)
+- 3 domain knowledge questions specific to "${role}" and their skills (${skills})
+
+Domain questions should test real knowledge relevant to this role — not generic trivia.
+
+Return ONLY a JSON array (no markdown, no extra text):
 [
   {
-    "question": "...",
-    "options": ["A text", "B text", "C text", "D text"],
-    "answer": 0,
-    "explanation": "..."
+    "question": "Full question text",
+    "options": ["Option A text", "Option B text", "Option C text", "Option D text"],
+    "answer": <0-based index of correct option>,
+    "explanation": "Why the correct answer is right",
+    "category": "logical"|"numerical"|"verbal"|"domain"
   }
 ]
-answer is the 0-based index of the correct option.`,
+
+Rules:
+- Exactly 4 options per question
+- answer is the 0-based index (0, 1, 2, or 3)
+- Domain questions must reference actual concepts from ${skills}
+- Difficulty appropriate for ${level} candidate`,
       },
     ],
-    { model: MODEL_BALANCED, temperature: 0.6, max_tokens: 1500 },
+    { model: MODEL_QUALITY, temperature: 0.5, max_tokens: 2500 },
   );
-  const clean = raw.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean) as AptitudeQuestion[];
+
+  try {
+    const clean = raw.replace(/```json|```/g, "").trim();
+    const start = clean.indexOf("[");
+    const end   = clean.lastIndexOf("]");
+    return JSON.parse(clean.slice(start, end + 1)) as AptitudeQuestion[];
+  } catch {
+    // Fallback: try parsing as-is
+    return JSON.parse(raw.replace(/```json|```/g, "").trim()) as AptitudeQuestion[];
+  }
 }
 
-async function evaluateAptitude(questions: AptitudeQuestion[], answers: number[]): Promise<string> {
+async function evaluateAptitude(
+  questions: AptitudeQuestion[],
+  answers: number[],
+): Promise<string> {
   const correct = answers.filter((a, i) => a === questions[i].answer).length;
+  const total   = questions.length;
   const details = questions
-    .map((q, i) => `Q${i + 1}: ${answers[i] === q.answer ? "✓" : "✗"} — ${q.explanation}`)
+    .map((q, i) => `Q${i + 1} [${q.category}]: ${answers[i] === q.answer ? "✓" : "✗"} — ${q.explanation}`)
     .join("\n");
+  const byCategory: Record<string, { correct: number; total: number }> = {};
+  questions.forEach((q, i) => {
+    byCategory[q.category] = byCategory[q.category] ?? { correct: 0, total: 0 };
+    byCategory[q.category].total++;
+    if (answers[i] === q.answer) byCategory[q.category].correct++;
+  });
+  const catSummary = Object.entries(byCategory)
+    .map(([cat, s]) => `${cat}: ${s.correct}/${s.total}`)
+    .join(", ");
 
   return groqChat(
     [
       {
         role: "user",
-        content: `A candidate scored ${correct}/${questions.length} on an aptitude test.
+        content: `A candidate scored ${correct}/${total} on a personalised aptitude test.
+Category breakdown: ${catSummary}
 
-Results:
+Question results:
 ${details}
 
-Write 2-3 sentences of constructive feedback highlighting strengths and areas to improve. Be specific.`,
+Write 3-4 sentences of constructive feedback:
+1. Overall performance summary
+2. Strongest category and why
+3. Weakest category and specific improvement advice
+4. One actionable next step
+
+Be direct and specific — not generic.`,
       },
     ],
-    { model: MODEL_BALANCED, temperature: 0.5, max_tokens: 200 },
+    { model: MODEL_BALANCED, temperature: 0.4, max_tokens: 250 },
   );
 }
 
-async function generateCodingProblem(): Promise<CodingProblem> {
-  const difficulties = ["Easy", "Medium"];
-  const diff = difficulties[Math.floor(Math.random() * difficulties.length)];
+async function generateCodingProblem(
+  role: string,
+  skills: string,
+  primaryLanguage: string,
+  years: number,
+): Promise<CodingProblem> {
+  const level = years >= 5 ? "Hard" : years >= 2 ? "Medium" : "Easy";
+  const lang  = primaryLanguage.split(",")[0].trim() || "JavaScript";
+
   const raw = await groqChat(
     [
       {
         role: "user",
-        content: `Generate a ${diff} LeetCode-style coding problem for a Frontend/Full-stack engineer interview.
+        content: `You are a senior engineer creating a coding interview question.
+
+Candidate profile:
+- Role: ${role}
+- Primary language: ${lang}
+- Skills: ${skills}
+- Experience level: ~${years} years → target difficulty: ${level}
+
+Generate a single ${level}-difficulty coding problem that:
+1. Is relevant to the candidate's actual role (${role}) and skills
+2. Uses ${lang} as the primary language
+3. Tests a concept they would genuinely encounter in this role
+4. Has a clear, unambiguous solution
 
 Return ONLY a JSON object (no markdown):
 {
-  "title": "Problem Title",
-  "difficulty": "${diff}",
-  "description": "Full problem description with constraints",
+  "title": "Concise problem title",
+  "difficulty": "${level}",
+  "language": "${lang}",
+  "description": "Full problem statement with constraints. Be precise about input/output format.",
   "examples": [
-    { "input": "nums = [2,7,11,15], target = 9", "output": "[0,1]" }
+    { "input": "example input", "output": "expected output" },
+    { "input": "edge case input", "output": "edge case output" }
   ],
-  "starterCode": "// JavaScript\\nfunction solve(input) {\\n  // your code here\\n}"
-}`,
+  "starterCode": "// ${lang}\\n// Write your solution below\\n\\n"
+}
+
+Rules:
+- description must be complete and unambiguous
+- starterCode must be valid ${lang} with a function signature appropriate for the problem
+- examples must match the description exactly
+- Do NOT generate a Two Sum clone unless it's truly relevant — pick something specific to ${role}`,
       },
     ],
-    { model: MODEL_BALANCED, temperature: 0.7, max_tokens: 800 },
+    { model: MODEL_QUALITY, temperature: 0.6, max_tokens: 1200 },
   );
-  const clean = raw.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean) as CodingProblem;
+
+  try {
+    const clean = raw.replace(/```json|```/g, "").trim();
+    const start = clean.indexOf("{");
+    const end   = clean.lastIndexOf("}");
+    return JSON.parse(clean.slice(start, end + 1)) as CodingProblem;
+  } catch {
+    // Fallback problem
+    return {
+      title: "Reverse a String",
+      difficulty: "Easy",
+      language: lang,
+      description: "Write a function that takes a string and returns it reversed.",
+      examples: [
+        { input: '"hello"', output: '"olleh"' },
+        { input: '"CareerPilot"', output: '"tolipreeraC"' },
+      ],
+      starterCode: `// ${lang}\nfunction reverseString(s) {\n  // your code here\n}`,
+    };
+  }
 }
 
 async function reviewCode(problem: CodingProblem, code: string): Promise<string> {
@@ -541,23 +598,26 @@ async function reviewCode(problem: CodingProblem, code: string): Promise<string>
     [
       {
         role: "user",
-        content: `You are a senior engineer reviewing a code submission.
+        content: `You are a senior ${problem.language} engineer conducting a code review.
 
-Problem: ${problem.title}
+Problem: ${problem.title} (${problem.difficulty})
 ${problem.description}
 
-Candidate's code:
-\`\`\`
+Candidate's solution:
+\`\`\`${problem.language.toLowerCase()}
 ${code}
 \`\`\`
 
-Provide concise code review feedback (3-5 sentences):
-- Does it solve the problem correctly?
-- Time and space complexity?
-- What's done well?
-- What could be improved?`,
+Provide a focused code review (4-5 sentences):
+1. Does it solve the problem correctly? (yes/no/partial)
+2. Time complexity and space complexity
+3. What's done well
+4. What could be improved (be specific — naming, edge cases, efficiency, idioms for ${problem.language})
+5. One concrete suggestion to make it better
+
+Be direct and technical. Avoid generic praise.`,
       },
     ],
-    { model: MODEL_BALANCED, temperature: 0.4, max_tokens: 350 },
+    { model: MODEL_BALANCED, temperature: 0.3, max_tokens: 400 },
   );
 }

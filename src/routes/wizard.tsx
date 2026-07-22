@@ -3,7 +3,7 @@ import {
   Upload, Sparkles, Loader2, CheckCircle2, AlertTriangle, XCircle,
   ArrowRight, ArrowLeft, X, RefreshCw, BarChart3, Briefcase,
   Target, Check, FileText, BookOpen, Mic, Code2, ClipboardCheck,
-  MapPin, DollarSign, ExternalLink, Play, Youtube,
+  MapPin, DollarSign, ExternalLink, Play, Youtube, Globe, Search,
 } from "lucide-react";
 import { useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import {
 import { saveWizardStep, loadWizardStep, STEPS, type WizardStep } from "@/lib/wizard-store";
 import { getVideoRecommendations, type VideoRec } from "@/lib/video-recommendations";
 import { saveProfile, toInitials, pushActivity, pushSnapshot, loadProfile } from "@/lib/user-store";
+import { generateJobListings, type JobListing } from "@/lib/job-search";
 
 export const Route = createFileRoute("/wizard")({
   head: () => ({ meta: [{ title: "Get Started — CareerPilot AI" }] }),
@@ -116,7 +117,7 @@ function WizardPage() {
       saveProfile({
         name: result.name || existing.name || "",
         email: existing.email || "",
-        location: existing.location || "",
+        location: result.location || existing.location || "",
         headline: result.headline || existing.headline || "",
         initials: toInitials(result.name || existing.name || ""),
       });
@@ -437,55 +438,185 @@ function StepSkills({ analysis, onBack, onNext }: {
 }
 
 // ─── STEP 5 · Jobs ───────────────────────────────────────────────────────────
-const JOBS = [
-  { c: "Linear",  t: "Senior Frontend Engineer",    l: "Remote",   s: "$160–200k", m: 92, sk: ["React","TypeScript","Design Systems"], url: "https://linear.app/careers"  },
-  { c: "Stripe",  t: "Frontend Engineer, Payments", l: "London",   s: "£110–140k", m: 87, sk: ["React","Next.js","GraphQL"],           url: "https://stripe.com/jobs"     },
-  { c: "Vercel",  t: "Product Engineer",            l: "Remote",   s: "$150–190k", m: 84, sk: ["Next.js","Node","PostgreSQL"],         url: "https://vercel.com/careers"  },
-  { c: "Notion",  t: "Software Engineer, Web",      l: "New York", s: "$170–210k", m: 79, sk: ["React","TypeScript","Testing"],        url: "https://notion.so/careers"   },
-  { c: "Arc",     t: "Frontend Engineer",           l: "Remote",   s: "$140–170k", m: 76, sk: ["React","Electron","TypeScript"],       url: "https://arc.net/careers"     },
-];
 
 function StepJobs({ onBack, onNext }: { onBack: () => void; onNext: () => void }) {
+  const cv = loadCVAnalysis();
+  const [jobs, setJobs] = useState<JobListing[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [fetched, setFetched] = useState(false);
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  const fetchJobs = async () => {
+    if (!cv) { toast.error("Upload your CV first to find matching jobs."); return; }
+    setLoading(true);
+    try {
+      const listings = await generateJobListings(cv);
+      setJobs(listings);
+      setFetched(true);
+      toast.success("Job matches found!");
+    } catch {
+      toast.error("Could not load jobs. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const location = cv?.location || "your area";
+  const role     = cv?.headline || "your target role";
+
   return (
     <div>
-      <StepLabel n={5} title="Roles matched for you" sub="Based on your CV profile, here are the highest-fit opportunities available right now. Each is ranked by match score." />
-      <div className="mt-8 space-y-3">
-        {JOBS.map((j) => (
-          <div key={j.t} className="rounded-xl border border-border bg-card p-5 transition-colors hover:border-foreground/20">
-            <div className="flex items-start gap-4">
-              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-secondary text-sm font-bold">{j.c[0]}</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-sm">{j.t}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{j.c}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <span className="text-lg font-bold text-primary">{j.m}%</span>
-                    <p className="text-[10px] text-muted-foreground">match</p>
-                  </div>
+      <StepLabel n={5} title="Roles near you" sub={`AI-matched vacancies for ${role} around ${location} — with direct links to every major jobs board.`} />
+
+      {/* Location + search info banner */}
+      <div className="mt-6 flex items-start gap-3 rounded-xl border border-border bg-card p-4">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+          <MapPin className="h-4 w-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium">
+            {cv?.location
+              ? <>Searching near <span className="text-primary">{cv.location}</span></>
+              : "No location found in your CV"}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {cv?.location
+              ? "Results include local, hybrid, and remote roles for your region."
+              : "Upload a CV with an address to get location-specific results. Remote roles always shown."}
+          </p>
+        </div>
+        <button
+          onClick={fetchJobs}
+          disabled={loading}
+          className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition-colors"
+        >
+          {loading ? (
+            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching…</>
+          ) : fetched ? (
+            <><RefreshCw className="h-3.5 w-3.5" /> Refresh</>
+          ) : (
+            <><Search className="h-3.5 w-3.5" /> Find jobs</>
+          )}
+        </button>
+      </div>
+
+      {/* Job listings */}
+      {!fetched && !loading && (
+        <div
+          onClick={fetchJobs}
+          className="mt-4 flex cursor-pointer flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card px-6 py-12 text-center transition-colors hover:border-primary/40 hover:bg-primary/5"
+        >
+          <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary/10 text-primary">
+            <Briefcase className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold">Find matching vacancies</p>
+            <p className="mt-1 text-xs text-muted-foreground max-w-xs">
+              AI scans your CV and finds the best-fit roles near {location} across LinkedIn, Google Jobs, Indeed, Reed, Glassdoor, and Adzuna.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {loading && (
+        <div className="mt-4 flex flex-col items-center gap-3 rounded-xl border border-border bg-card px-6 py-12 text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <div>
+            <p className="text-sm font-semibold">Finding matching roles…</p>
+            <p className="mt-1 text-xs text-muted-foreground">Analysing your profile against live vacancy markets</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2 mt-1">
+            {["LinkedIn", "Google Jobs", "Indeed", "Reed", "Glassdoor", "Adzuna"].map((b) => (
+              <span key={b} className="animate-pulse rounded-full border border-border bg-background px-2.5 py-0.5 text-[11px] text-muted-foreground">{b}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {fetched && jobs.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {jobs.map((j, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card overflow-hidden transition-colors hover:border-foreground/20">
+              {/* Summary row */}
+              <div
+                className="flex items-start gap-4 p-5 cursor-pointer"
+                onClick={() => setExpanded(expanded === i ? null : i)}
+              >
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-secondary text-sm font-bold">
+                  {j.company[0]}
                 </div>
-                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div className="h-1.5 rounded-full bg-primary" style={{ width: `${j.m}%` }} />
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{j.l}</span>
-                  <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{j.s}</span>
-                </div>
-                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap gap-1">
-                    {j.sk.map((s) => <span key={s} className="rounded-md border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">{s}</span>)}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-sm leading-tight">{j.title}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{j.company}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <span className={`text-lg font-bold ${j.matchScore >= 80 ? "text-primary" : j.matchScore >= 65 ? "text-[color:var(--color-warning)]" : "text-muted-foreground"}`}>
+                        {j.matchScore}%
+                      </span>
+                      <p className="text-[10px] text-muted-foreground">match</p>
+                    </div>
                   </div>
-                  <a href={j.url} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors">
-                    Apply <ExternalLink className="h-3 w-3" />
-                  </a>
+                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={`h-1.5 rounded-full transition-all ${j.matchScore >= 80 ? "bg-primary" : j.matchScore >= 65 ? "bg-[color:var(--color-warning)]" : "bg-muted-foreground/50"}`}
+                      style={{ width: `${j.matchScore}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{j.location}</span>
+                    <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{j.salaryRange}</span>
+                    {j.remote && (
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Remote</span>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {/* Expanded detail */}
+              {expanded === i && (
+                <div className="border-t border-border px-5 pb-5 pt-4 space-y-4">
+                  <p className="text-sm text-muted-foreground leading-relaxed">{j.description}</p>
+
+                  {/* Required skills */}
+                  <div>
+                    <p className="mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Key skills</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {j.requiredSkills.map((s) => (
+                        <span key={s} className="rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Search on boards */}
+                  <div>
+                    <p className="mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Search this role on</p>
+                    <div className="flex flex-wrap gap-2">
+                      {j.sources.map((src) => (
+                        <a
+                          key={src.board}
+                          href={src.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-colors"
+                        >
+                          <Globe className="h-3 w-3 text-muted-foreground" />
+                          {src.board}
+                          <ExternalLink className="h-2.5 w-2.5 text-muted-foreground" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+
       <Nav onBack={onBack} onNext={onNext} nextLabel="Get interview-ready →" />
     </div>
   );
@@ -680,6 +811,9 @@ The JSON must have this exact shape:
   "atsReady": <boolean>,
   "name": "<candidate name if found, else empty string>",
   "headline": "<job title/headline if found, else empty string>",
+  "location": "<city and country extracted from CV address/contact section, e.g. 'Lagos, Nigeria' or 'London, UK'. Empty string if not found.>",
+  "yearsOfExperience": <integer — total years of work experience estimated from the CV, 0 if unclear>,
+  "primaryLanguages": ["<main programming language or tech stack 1>", "<2>"],
   "skills": ["skill1", "skill2", ...],
   "sections": [
     { "label": "Formatting", "status": "good"|"warn"|"bad", "score": <0-100> },
@@ -711,7 +845,7 @@ Scoring Criteria:
 
 Status Rules:
 - status "good" = score >= 80
-- status "warn" = 50-79  
+- status "warn" = 50-79
 - status "bad" = < 50
 - overallScore = weighted average of all section scores
 - atsReady = true if overallScore >= 75
@@ -729,7 +863,7 @@ ${text.slice(0, 4000)}`;
   const raw = await groqChat([{ role: "user", content: prompt }], {
     model: MODEL_QUALITY,
     temperature: 0.2,
-    max_tokens: 1500,
+    max_tokens: 1600,
   });
 
   console.log("[CV Analysis] Raw AI response:", raw);
@@ -749,6 +883,9 @@ ${text.slice(0, 4000)}`;
       atsReady: false,
       name: "",
       headline: "",
+      location: "",
+      yearsOfExperience: 0,
+      primaryLanguages: [],
       skills: [],
       sections: [
         { label: "Formatting", status: "bad", score: 50 },

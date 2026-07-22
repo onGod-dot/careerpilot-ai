@@ -15,6 +15,12 @@ export interface CVAnalysis {
   skills: string[];
   name?: string;
   headline?: string;
+  /** City/country extracted from the CV (e.g. "Lagos, Nigeria" or "London, UK") */
+  location?: string;
+  /** Approximate years of experience detected in CV */
+  yearsOfExperience?: number;
+  /** Primary programming language(s) detected */
+  primaryLanguages?: string[];
 }
 
 const SESSION_KEY = "careerpilot_cv";
