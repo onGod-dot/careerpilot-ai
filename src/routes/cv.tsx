@@ -428,6 +428,7 @@ async function analyseCV(text: string): Promise<CVAnalysis> {
 Analyse the following CV text and return ONLY a valid JSON object.
 
 IMPORTANT: Return ONLY raw JSON. No markdown code blocks, no explanation, no extra text.
+Keep responses short, simple, and precise. Avoid lengthy explanations.
 
 The JSON must have this exact shape:
 {

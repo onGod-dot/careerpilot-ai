@@ -51,7 +51,8 @@ interface ChatMessage {
 const SYSTEM_PROMPT = `You are CareerPilot AI, an expert career coach embedded in the CareerPilot app.
 You help users with CV writing, interview prep, skill development, job searching, and career planning.
 Be concise, warm, and actionable. Format responses with bullet points or short paragraphs.
-If the user shares CV data, use it to give personalised advice.`;
+If the user shares CV data, use it to give personalised advice.
+ALWAYS keep responses short, simple, and precise. Avoid lengthy explanations.`;
 
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });

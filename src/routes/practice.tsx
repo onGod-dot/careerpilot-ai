@@ -764,7 +764,7 @@ Write 3-4 sentences of constructive feedback:
 3. Weakest category and specific improvement advice
 4. One actionable next step
 
-Be direct and specific — not generic.`,
+Be direct and specific — not generic. Keep answers short, simple, and precise. Avoid lengthy explanations.`,
       },
     ],
     { model: MODEL_BALANCED, temperature: 0.4, max_tokens: 250 },
@@ -864,7 +864,7 @@ Provide a focused code review (4-5 sentences):
 4. What could be improved (be specific — naming, edge cases, efficiency, idioms for ${problem.language})
 5. One concrete suggestion to make it better
 
-Be direct and technical. Avoid generic praise.`,
+Be direct and technical. Avoid generic praise. Keep answers short, simple, and precise. Avoid lengthy explanations.`,
       },
     ],
     { model: MODEL_BALANCED, temperature: 0.3, max_tokens: 400 },

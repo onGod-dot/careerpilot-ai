@@ -124,7 +124,8 @@ Rules:
 - Sort by matchScore descending
 - Location must be near "${location}" OR "Remote"
 - salaryRange must use the correct currency for the region
-- description must be specific and practical — no generic filler`;
+- description must be specific and practical — no generic filler
+- Keep responses short, simple, and precise. Avoid lengthy explanations.`;
 
   const raw = await groqChat(
     [{ role: "user", content: prompt }],

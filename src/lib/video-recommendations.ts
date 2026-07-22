@@ -60,7 +60,8 @@ Rules:
 - Use specific, searchable YouTube queries (channel names help: e.g. "Fireship Docker tutorial", "TechLead resume tips")
 - Make reasons specific to their weak areas, not generic
 - Cover a mix of: technical skills, interview prep, CV improvement
-- Return exactly 6 items`;
+- Return exactly 6 items
+- Keep responses short, simple, and precise. Avoid lengthy explanations.`;
 
   const raw = await groqChat(
     [{ role: "user", content: prompt }],
