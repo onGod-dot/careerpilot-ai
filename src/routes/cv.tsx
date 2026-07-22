@@ -485,15 +485,28 @@ ${text.slice(0, 4000)}`;
   const raw = await groqChat([{ role: "user", content: prompt }], {
     model: MODEL_QUALITY,
     temperature: 0.2,
-    max_tokens: 1500,
+    max_tokens: 2000,
   });
 
   console.log("[CV Analysis] Raw AI response:", raw);
 
   try {
-    // Strip any accidental markdown fences
-    const clean = raw.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(clean) as CVAnalysis;
+    // Extract JSON from response - handle markdown code blocks and extra text
+    let clean = raw.trim();
+    
+    // Remove markdown code blocks if present
+    clean = clean.replace(/```json\s*/g, "").replace(/```\s*/g, "");
+    
+    // Find JSON object boundaries
+    const startIdx = clean.indexOf("{");
+    const endIdx = clean.lastIndexOf("}");
+    
+    if (startIdx === -1 || endIdx === -1) {
+      throw new Error("No JSON object found in response");
+    }
+    
+    const jsonStr = clean.slice(startIdx, endIdx + 1);
+    const parsed = JSON.parse(jsonStr) as CVAnalysis;
     console.log("[CV Analysis] Parsed successfully:", parsed);
     return parsed;
   } catch (error) {
