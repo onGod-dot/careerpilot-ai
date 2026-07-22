@@ -8,10 +8,12 @@ import {
   ChevronRight,
   Loader2,
   CheckCircle2,
+  XCircle,
   X,
   RotateCcw,
   Sparkles,
   User,
+  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -67,8 +69,37 @@ type ActiveSession =
       answers: number[];
       done: boolean;
       feedback: string;
+      scorePct?: number;
+      correctCount?: number;
     }
   | { type: "coding"; problem: CodingProblem; code: string; feedback: string; done: boolean };
+
+const OPTION_LABELS = ["A", "B", "C", "D"];
+
+const CATEGORY_LABELS: Record<AptitudeQuestion["category"], string> = {
+  logical: "Logical Reasoning",
+  numerical: "Numerical Reasoning",
+  verbal: "Verbal Reasoning",
+  domain: "Domain / Role Knowledge",
+};
+
+function scoreTextColor(pct: number) {
+  return pct >= 80 ? "text-primary" : pct >= 60 ? "text-[color:var(--color-warning)]" : "text-destructive";
+}
+
+function scoreBarColor(pct: number) {
+  return pct >= 80 ? "bg-primary" : pct >= 60 ? "bg-[color:var(--color-warning)]" : "bg-destructive";
+}
+
+function computeCategoryBreakdown(questions: AptitudeQuestion[], answers: number[]) {
+  const byCategory: Record<string, { correct: number; total: number }> = {};
+  questions.forEach((q, i) => {
+    byCategory[q.category] = byCategory[q.category] ?? { correct: 0, total: 0 };
+    byCategory[q.category].total++;
+    if (answers[i] === q.answer) byCategory[q.category].correct++;
+  });
+  return byCategory;
+}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -115,7 +146,12 @@ function PracticePage() {
   if (activeSession?.type === "aptitude") {
     return (
       <AppShell title="Aptitude Test">
-        <AptitudeSession session={activeSession} onUpdate={(s) => setActiveSession(s)} onClose={closeSession} />
+        <AptitudeSession
+          session={activeSession}
+          onUpdate={(s) => setActiveSession(s)}
+          onClose={closeSession}
+          onRetry={startAptitude}
+        />
       </AppShell>
     );
   }
@@ -227,14 +263,216 @@ function PracticePage() {
 
 // ─── Aptitude Session ─────────────────────────────────────────────────────────
 
+function AptitudeResults({
+  session,
+  onClose,
+  onRetry,
+}: {
+  session: Extract<ActiveSession, { type: "aptitude" }> & { scorePct: number; correctCount: number };
+  onClose: (r?: SessionResult) => void;
+  onRetry: () => void;
+}) {
+  const { questions, answers, scorePct, correctCount, feedback } = session;
+  const total = questions.length;
+  const wrongCount = total - correctCount;
+  const byCategory = computeCategoryBreakdown(questions, answers);
+
+  const finish = () =>
+    onClose({
+      type: "aptitude",
+      title: "Aptitude Test",
+      score: `${scorePct}%`,
+      feedback,
+      time: "Just now",
+    });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <PageHeader eyebrow="Results" title="Aptitude Test Complete" />
+        <button onClick={finish} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <X className="h-4 w-4" /> Close
+        </button>
+      </div>
+
+      {/* Score hero */}
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
+          <div className="text-center sm:text-left">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Your Score</p>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className={`text-6xl font-bold ${scoreTextColor(scorePct)}`}>{scorePct}</span>
+              <span className="text-xl text-muted-foreground">/ 100</span>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {correctCount} of {total} correct
+              {wrongCount > 0 && <> · {wrongCount} to review below</>}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {scorePct >= 80
+                ? "Excellent — strong reasoning across the board."
+                : scorePct >= 60
+                  ? "Solid effort. Review the missed questions below."
+                  : "Keep practising — the breakdown shows where to focus."}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={onRetry}
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              <RotateCcw className="h-4 w-4" /> Try again
+            </button>
+            <button
+              onClick={finish}
+              className="inline-flex items-center gap-2 rounded-xl border border-input bg-background px-4 py-2.5 text-sm font-medium hover:bg-accent"
+            >
+              Back to Practice
+            </button>
+          </div>
+        </div>
+        <div className="mt-5 h-2.5 w-full rounded-full bg-muted">
+          <div className={`h-2.5 rounded-full transition-all duration-1000 ${scoreBarColor(scorePct)}`} style={{ width: `${scorePct}%` }} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+            <CheckCircle2 className="h-3.5 w-3.5" /> {correctCount} correct
+          </span>
+          {wrongCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs font-medium text-destructive">
+              <XCircle className="h-3.5 w-3.5" /> {wrongCount} incorrect
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Category breakdown */}
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
+          <TrendingUp className="h-4 w-4 text-primary" />
+          Category breakdown
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Object.entries(byCategory).map(([cat, stats]) => {
+            const pct = Math.round((stats.correct / stats.total) * 100);
+            return (
+              <div key={cat} className="rounded-xl border border-border bg-background p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {CATEGORY_LABELS[cat as AptitudeQuestion["category"]] ?? cat}
+                  </span>
+                  <span className={`text-lg font-bold ${scoreTextColor(pct)}`}>{stats.correct}/{stats.total}</span>
+                </div>
+                <div className="mt-2 h-1.5 w-full rounded-full bg-muted">
+                  <div className={`h-1.5 rounded-full transition-all ${scoreBarColor(pct)}`} style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* AI feedback */}
+      {feedback && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Sparkles className="h-4 w-4 text-primary" /> AI Coach Feedback
+          </div>
+          <p className="text-sm leading-relaxed text-muted-foreground">{stripMarkdown(feedback)}</p>
+        </div>
+      )}
+
+      {/* Per-question review */}
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <div className="text-sm font-semibold">Answer review</div>
+          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+            {total} questions
+          </span>
+        </div>
+        <div className="space-y-4">
+          {questions.map((q, i) => {
+            const userIdx = answers[i];
+            const isCorrect = userIdx === q.answer;
+            return (
+              <div
+                key={i}
+                className={`rounded-xl border p-4 ${
+                  isCorrect ? "border-border bg-background" : "border-destructive/30 bg-destructive/5"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full ${
+                    isCorrect ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
+                  }`}>
+                    {isCorrect ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold text-muted-foreground">Q{i + 1}</span>
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                        {CATEGORY_LABELS[q.category]}
+                      </span>
+                      <span className={`ml-auto text-xs font-semibold ${isCorrect ? "text-primary" : "text-destructive"}`}>
+                        {isCorrect ? "Correct" : "Incorrect"}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-sm font-medium leading-relaxed">{q.question}</p>
+
+                    {!isCorrect && (
+                      <div className="mt-3 space-y-2">
+                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-destructive">Your answer</p>
+                          <p className="mt-1 text-sm">
+                            <span className="font-semibold text-destructive">{OPTION_LABELS[userIdx]}.</span>{" "}
+                            {q.options[userIdx]}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Correct answer</p>
+                          <p className="mt-1 text-sm">
+                            <span className="font-semibold text-primary">{OPTION_LABELS[q.answer]}.</span>{" "}
+                            {q.options[q.answer]}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {isCorrect && (
+                      <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+                        <p className="text-sm">
+                          <span className="font-semibold text-primary">{OPTION_LABELS[q.answer]}.</span>{" "}
+                          {q.options[q.answer]}
+                        </p>
+                      </div>
+                    )}
+
+                    {q.explanation && (
+                      <p className="mt-2.5 text-xs leading-relaxed text-muted-foreground">
+                        <span className="font-medium text-foreground">Why: </span>{q.explanation}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AptitudeSession({
   session,
   onUpdate,
   onClose,
+  onRetry,
 }: {
   session: Extract<ActiveSession, { type: "aptitude" }>;
   onUpdate: (s: ActiveSession) => void;
   onClose: (r?: SessionResult) => void;
+  onRetry: () => void;
 }) {
   const [evaluating, setEvaluating] = useState(false);
   const q = session.questions[session.current];
@@ -250,12 +488,29 @@ function AptitudeSession({
       setEvaluating(false);
       pushActivity("Aptitude test completed", `Score: ${pct}% · ${correct}/${total} correct`);
       const lastSnap = loadSnapshots().slice(-1)[0];
-      pushSnapshot({ cv: lastSnap?.cv ?? 0, interview: pct, coding: lastSnap?.coding ?? 0 });
-      onClose({ type: "aptitude", title: "Aptitude Test", score: `${pct}%`, feedback, time: "Just now" });
+      pushSnapshot({ cv: lastSnap?.cv ?? 0, interview: lastSnap?.interview ?? 0, coding: lastSnap?.coding ?? 0 });
+      onUpdate({
+        ...session,
+        answers: newAnswers,
+        done: true,
+        feedback,
+        scorePct: pct,
+        correctCount: correct,
+      });
     } else {
       onUpdate({ ...session, current: session.current + 1, answers: newAnswers });
     }
   };
+
+  if (session.done && session.scorePct !== undefined && session.correctCount !== undefined) {
+    return (
+      <AptitudeResults
+        session={session as Extract<ActiveSession, { type: "aptitude" }> & { scorePct: number; correctCount: number }}
+        onClose={onClose}
+        onRetry={onRetry}
+      />
+    );
+  }
 
   if (evaluating) {
     return (
@@ -267,12 +522,6 @@ function AptitudeSession({
   }
 
   const progress = (session.current / total) * 100;
-  const categoryLabel: Record<AptitudeQuestion["category"], string> = {
-    logical: "Logical Reasoning",
-    numerical: "Numerical Reasoning",
-    verbal: "Verbal Reasoning",
-    domain: "Domain / Role Knowledge",
-  };
 
   return (
     <div className="space-y-6">
@@ -291,7 +540,7 @@ function AptitudeSession({
         {q.category && (
           <div className="mb-3">
             <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
-              {categoryLabel[q.category] ?? q.category}
+              {CATEGORY_LABELS[q.category] ?? q.category}
             </span>
           </div>
         )}
@@ -303,7 +552,7 @@ function AptitudeSession({
               onClick={() => answer(i)}
               className="rounded-lg border border-border bg-background px-4 py-3 text-left text-sm transition-colors hover:border-primary hover:bg-primary/5"
             >
-              <span className="mr-3 font-semibold text-muted-foreground">{["A", "B", "C", "D"][i]}.</span>
+              <span className="mr-3 font-semibold text-muted-foreground">{OPTION_LABELS[i]}.</span>
               {opt}
             </button>
           ))}

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell, PageHeader } from "@/components/app-shell";
 import {
   Mic, Square, RotateCcw, Loader2, Play, Volume2, VolumeX,
-  ChevronDown, User, AlertCircle, CheckCircle2, TrendingUp, RefreshCw,
+  ChevronDown, User, AlertCircle, CheckCircle2, XCircle, TrendingUp, RefreshCw,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
@@ -28,7 +28,22 @@ export const Route = createFileRoute("/interview")({
 
 interface Message { role: "ai" | "user"; text: string; }
 interface Score   { label: string; value: number; tip: string; }
+interface QuestionReview {
+  question: string;
+  yourAnswer: string;
+  score: number;
+  feedback: string;
+  idealAnswer: string;
+}
 type Stage = "idle" | "speaking" | "live" | "recording" | "transcribing" | "thinking" | "done";
+
+function scoreTextColor(pct: number) {
+  return pct >= 80 ? "text-primary" : pct >= 60 ? "text-[color:var(--color-warning)]" : "text-destructive";
+}
+
+function scoreBarColor(pct: number) {
+  return pct >= 80 ? "bg-primary" : pct >= 60 ? "bg-[color:var(--color-warning)]" : "bg-destructive";
+}
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
@@ -53,9 +68,13 @@ Rules:
 - Do NOT ask more than 5 questions under any circumstances.
 
 After the 5th answer output ONLY this JSON block (no other text after it):
-SCORE_JSON:{"confidence":0,"communication":0,"technical":0,"problemSolving":0,"professionalism":0,"tips":{"confidence":"specific tip","communication":"specific tip","technical":"specific tip","problemSolving":"specific tip","professionalism":"specific tip"},"improvements":["specific area 1","specific area 2","specific area 3"]}
+SCORE_JSON:{"confidence":0,"communication":0,"technical":0,"problemSolving":0,"professionalism":0,"tips":{"confidence":"specific tip","communication":"specific tip","technical":"specific tip","problemSolving":"specific tip","professionalism":"specific tip"},"improvements":["specific area 1","specific area 2","specific area 3"],"reviews":[{"question":"the exact question you asked","yourAnswer":"brief summary of what the candidate actually said","score":0,"feedback":"what was weak, missing, or could be improved in their answer","idealAnswer":"what a strong answer would include — be specific and actionable"}]}
 
 Replace 0s with scores 0-100 based on actual answers given.
+reviews must have exactly 5 entries — one per question asked, in order. score = how well they answered that specific question (0-100).
+yourAnswer = concise summary of their actual response (not verbatim unless short).
+idealAnswer = the key points a strong candidate would cover — this is the "correct" answer guide.
+feedback = what they got wrong or missed for that question.
 tips = one actionable sentence per dimension telling the candidate exactly how to improve that specific score.
 improvements = 3 most impactful areas to work on, written as full sentences referencing what they actually said.
 Start by greeting the candidate warmly and immediately asking your first question.`;
@@ -73,6 +92,7 @@ export default function InterviewPage() {
   const [history,       setHistory]       = useState<GroqMessage[]>([]);
   const [scores,        setScores]        = useState<Score[]>([]);
   const [improvements,  setImprovements]  = useState<string[]>([]);
+  const [questionReviews, setQuestionReviews] = useState<QuestionReview[]>([]);
   const [elapsed,       setElapsed]       = useState(0);
   const [qCount,        setQCount]        = useState(0);
   const [userInput,     setUserInput]     = useState("");
@@ -143,6 +163,7 @@ export default function InterviewPage() {
           problemSolving: number; professionalism: number;
           tips: { confidence: string; communication: string; technical: string; problemSolving: string; professionalism: string };
           improvements: string[];
+          reviews?: QuestionReview[];
         };
         const tips = s.tips ?? { confidence: "", communication: "", technical: "", problemSolving: "", professionalism: "" };
         const newScores: Score[] = [
@@ -154,6 +175,7 @@ export default function InterviewPage() {
         ];
         setScores(newScores);
         setImprovements(s.improvements ?? []);
+        setQuestionReviews(s.reviews ?? []);
         setStage("done");
         const avg = Math.round(newScores.reduce((a, n) => a + n.value, 0) / newScores.length);
         pushActivity("Mock interview completed", `Score: ${avg}/100 · Technical ${s.technical}`);
@@ -174,7 +196,7 @@ export default function InterviewPage() {
     try {
       const reply = await groqChat(
         [{ role: "system", content: buildSystemPrompt(role, skills, seed) }, ...newHist],
-        { model: MODEL_FAST, temperature: 0.7, max_tokens: 500 },
+        { model: MODEL_FAST, temperature: 0.7, max_tokens: 1200 },
       );
       const updated: GroqMessage[] = [...newHist, { role: "assistant", content: reply }];
       setHistory(updated);
@@ -190,7 +212,7 @@ export default function InterviewPage() {
 
   const startInterview = async () => {
     setMessages([]); setHistory([]); setElapsed(0); setQCount(0);
-    setScores([]); setImprovements([]); setUserInput("");
+    setScores([]); setImprovements([]); setQuestionReviews([]); setUserInput("");
     setStage("thinking");
     try {
       const reply = await groqChat(
@@ -271,7 +293,7 @@ export default function InterviewPage() {
     if (recTimerRef.current) clearInterval(recTimerRef.current);
     setStage("idle"); setMessages([]); setHistory([]);
     setElapsed(0); setQCount(0); setUserInput("");
-    setTtsStatus(""); setScores([]); setImprovements([]);
+    setTtsStatus(""); setScores([]); setImprovements([]); setQuestionReviews([]);
   };
 
   const tryAgain = () => {
@@ -474,7 +496,10 @@ export default function InterviewPage() {
       </div>
 
       {/* Scores + improvement report */}
-      {stage === "done" && scores.length > 0 && (
+      {stage === "done" && scores.length > 0 && (() => {
+        const overallAvg = Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length);
+        const weakAnswers = questionReviews.filter((r) => r.score < 80).length;
+        return (
         <div className="mt-8 space-y-4">
 
           {/* Overall score hero */}
@@ -483,22 +508,30 @@ export default function InterviewPage() {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Interview Result</p>
                 <div className="mt-1 flex items-baseline gap-2">
-                  <span className={`text-6xl font-bold ${
-                    Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 80 ? "text-primary"
-                    : Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 60 ? "text-[color:var(--color-warning)]"
-                    : "text-destructive"
-                  }`}>
-                    {Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length)}
+                  <span className={`text-6xl font-bold ${scoreTextColor(overallAvg)}`}>
+                    {overallAvg}
                   </span>
                   <span className="text-xl text-muted-foreground">/ 100</span>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 80
+                  {overallAvg >= 80
                     ? "Strong performance — you're interview-ready."
-                    : Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 60
+                    : overallAvg >= 60
                       ? "Good effort. Work on the areas below to level up."
                       : "Keep practising. Detailed coaching tips are below."}
                 </p>
+                {questionReviews.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> {questionReviews.length - weakAnswers} strong answers
+                    </span>
+                    {weakAnswers > 0 && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs font-medium text-destructive">
+                        <XCircle className="h-3.5 w-3.5" /> {weakAnswers} to improve
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex gap-2">
                 <button
@@ -517,12 +550,8 @@ export default function InterviewPage() {
             </div>
             <div className="mt-5 h-2.5 w-full rounded-full bg-muted">
               <div
-                className={`h-2.5 rounded-full transition-all duration-1000 ${
-                  Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 80 ? "bg-primary"
-                  : Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length) >= 60 ? "bg-[color:var(--color-warning)]"
-                  : "bg-destructive"
-                }`}
-                style={{ width: `${Math.round(scores.reduce((a, s) => a + s.value, 0) / scores.length)}%` }}
+                className={`h-2.5 rounded-full transition-all duration-1000 ${scoreBarColor(overallAvg)}`}
+                style={{ width: `${overallAvg}%` }}
               />
             </div>
           </div>
@@ -534,26 +563,98 @@ export default function InterviewPage() {
               <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">5 dimensions</span>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-              {scores.map((r) => {
-                const colour = r.value >= 80 ? "bg-primary text-primary" : r.value >= 60 ? "bg-[color:var(--color-warning)] text-[color:var(--color-warning)]" : "bg-destructive text-destructive";
-                const barColour = r.value >= 80 ? "bg-primary" : r.value >= 60 ? "bg-[color:var(--color-warning)]" : "bg-destructive";
-                return (
+              {scores.map((r) => (
                   <div key={r.label} className="rounded-xl border border-border bg-background p-4">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{r.label}</div>
-                    <div className={`mt-1 text-3xl font-bold ${r.value >= 80 ? "text-primary" : r.value >= 60 ? "text-[color:var(--color-warning)]" : "text-destructive"}`}>
+                    <div className={`mt-1 text-3xl font-bold ${scoreTextColor(r.value)}`}>
                       {r.value}
                     </div>
                     <div className="mt-2 h-1.5 w-full rounded-full bg-muted">
-                      <div className={`h-1.5 rounded-full transition-all duration-700 ${barColour}`} style={{ width: `${r.value}%` }} />
+                      <div className={`h-1.5 rounded-full transition-all duration-700 ${scoreBarColor(r.value)}`} style={{ width: `${r.value}%` }} />
                     </div>
                     {r.tip && (
                       <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground line-clamp-3">{r.tip}</p>
                     )}
                   </div>
-                );
-              })}
+              ))}
             </div>
           </div>
+
+          {/* Question-by-question review */}
+          {questionReviews.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-6">
+              <div className="mb-5 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <AlertCircle className="h-4 w-4 text-primary" />
+                  Answer review
+                </div>
+                <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                  {questionReviews.length} questions
+                </span>
+              </div>
+              <div className="space-y-4">
+                {questionReviews.map((review, i) => {
+                  const isStrong = review.score >= 80;
+                  return (
+                    <div
+                      key={i}
+                      className={`rounded-xl border p-4 ${
+                        isStrong ? "border-border bg-background" : "border-destructive/30 bg-destructive/5"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full ${
+                          isStrong ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
+                        }`}>
+                          {isStrong ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-semibold text-muted-foreground">Q{i + 1}</span>
+                            <span className={`ml-auto text-sm font-bold ${scoreTextColor(review.score)}`}>
+                              {review.score}/100
+                            </span>
+                          </div>
+                          <p className="mt-1.5 text-sm font-medium leading-relaxed">{review.question}</p>
+
+                          <div className="mt-3 h-1.5 w-full rounded-full bg-muted">
+                            <div className={`h-1.5 rounded-full ${scoreBarColor(review.score)}`} style={{ width: `${review.score}%` }} />
+                          </div>
+
+                          <div className="mt-3 space-y-2">
+                            <div className={`rounded-lg border px-3 py-2.5 ${
+                              isStrong ? "border-border bg-secondary/30" : "border-destructive/20 bg-destructive/5"
+                            }`}>
+                              <p className={`text-[10px] font-semibold uppercase tracking-wider ${
+                                isStrong ? "text-muted-foreground" : "text-destructive"
+                              }`}>Your answer</p>
+                              <p className="mt-1 text-sm leading-relaxed">{stripMarkdown(review.yourAnswer)}</p>
+                            </div>
+
+                            {!isStrong && review.feedback && (
+                              <div className="rounded-lg border border-[color:var(--color-warning)]/20 bg-[color:var(--color-warning)]/5 px-3 py-2.5">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-warning)]">
+                                  What to improve
+                                </p>
+                                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{stripMarkdown(review.feedback)}</p>
+                              </div>
+                            )}
+
+                            <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+                                {isStrong ? "Why this worked" : "Stronger answer"}
+                              </p>
+                              <p className="mt-1 text-sm leading-relaxed">{stripMarkdown(review.idealAnswer)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Top 3 improvement areas */}
           <div className="rounded-xl border border-border bg-card p-6">
@@ -592,7 +693,8 @@ export default function InterviewPage() {
           </div>
 
         </div>
-      )}
+        );
+      })()}
     </AppShell>
   );
 }
