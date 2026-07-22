@@ -62,7 +62,6 @@ function CVPage() {
     if (saved && savedAnalysis) {
       setFileName(saved.fileName);
       setCvText(saved.text);
-      setFileUrl(saved.fileUrl || "");
       setAnalysis(savedAnalysis);
       setStage("done");
     }
@@ -85,7 +84,7 @@ function CVPage() {
 
       const text = await extractTextFromFile(file);
       setCvText(text);
-      saveCVText(text, file.name, url);
+      saveCVText(text, file.name);
       setStage("analysing");
       setProgress(40);
 

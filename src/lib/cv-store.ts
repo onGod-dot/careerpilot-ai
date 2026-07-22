@@ -25,20 +25,16 @@ export interface CVAnalysis {
 
 const SESSION_KEY = "careerpilot_cv";
 
-export function saveCVText(text: string, fileName: string, fileUrl?: string) {
+export function saveCVText(text: string, fileName: string) {
   sessionStorage.setItem(SESSION_KEY + "_text", text);
   sessionStorage.setItem(SESSION_KEY + "_name", fileName);
-  if (fileUrl) {
-    sessionStorage.setItem(SESSION_KEY + "_fileUrl", fileUrl);
-  }
 }
 
-export function loadCVText(): { text: string; fileName: string; fileUrl?: string } | null {
+export function loadCVText(): { text: string; fileName: string } | null {
   const text = sessionStorage.getItem(SESSION_KEY + "_text");
   const fileName = sessionStorage.getItem(SESSION_KEY + "_name");
-  const fileUrl = sessionStorage.getItem(SESSION_KEY + "_fileUrl") || undefined;
   if (!text || !fileName) return null;
-  return { text, fileName, fileUrl };
+  return { text, fileName };
 }
 
 export function saveCVAnalysis(analysis: CVAnalysis) {
@@ -58,6 +54,5 @@ export function loadCVAnalysis(): CVAnalysis | null {
 export function clearCV() {
   sessionStorage.removeItem(SESSION_KEY + "_text");
   sessionStorage.removeItem(SESSION_KEY + "_name");
-  sessionStorage.removeItem(SESSION_KEY + "_fileUrl");
   sessionStorage.removeItem(SESSION_KEY + "_analysis");
 }
