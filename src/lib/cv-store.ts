@@ -21,6 +21,10 @@ export interface CVAnalysis {
   yearsOfExperience?: number;
   /** Primary programming language(s) detected */
   primaryLanguages?: string[];
+  /** AI writing likelihood score 0-100 (0=clearly human, 100=clearly AI-written) */
+  aiWritingScore?: number;
+  /** Specific AI writing flags detected (e.g. "High density of AI vocabulary") */
+  aiWritingFlags?: string[];
 }
 
 const SESSION_KEY = "careerpilot_cv";

@@ -327,6 +327,62 @@ function StepResults({ analysis, fileName, cvText, onBack, onNext, onReplace }: 
         </div>
       </div>
 
+      {/* AI Writing Detection */}
+      {analysis.aiWritingScore !== undefined && (
+        <div className={`mt-4 rounded-2xl border p-6 ${
+          analysis.aiWritingScore >= 70 ? "border-destructive/30 bg-destructive/5" :
+          analysis.aiWritingScore >= 40 ? "border-[color:var(--color-warning)]/30 bg-[color:var(--color-warning)]/5" :
+          "border-primary/20 bg-primary/5"
+        }`}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold">AI Writing Detection</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Based on Wikipedia's official signs of AI-generated text
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <span className={`text-3xl font-bold ${
+                analysis.aiWritingScore >= 70 ? "text-destructive" :
+                analysis.aiWritingScore >= 40 ? "text-[color:var(--color-warning)]" :
+                "text-primary"
+              }`}>{analysis.aiWritingScore}<span className="text-base text-muted-foreground">/100</span></span>
+              <p className={`text-xs font-medium mt-0.5 ${
+                analysis.aiWritingScore >= 70 ? "text-destructive" :
+                analysis.aiWritingScore >= 40 ? "text-[color:var(--color-warning)]" :
+                "text-primary"
+              }`}>
+                {analysis.aiWritingScore >= 70 ? "Likely AI-written" :
+                 analysis.aiWritingScore >= 40 ? "Possibly AI-assisted" :
+                 "Appears human-written"}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div className={`h-2 rounded-full transition-all duration-700 ${
+              analysis.aiWritingScore >= 70 ? "bg-destructive" :
+              analysis.aiWritingScore >= 40 ? "bg-[color:var(--color-warning)]" :
+              "bg-primary"
+            }`} style={{ width: `${analysis.aiWritingScore}%` }} />
+          </div>
+          {analysis.aiWritingFlags && analysis.aiWritingFlags.length > 0 && (
+            <ul className="mt-4 space-y-1.5">
+              {analysis.aiWritingFlags.map((f, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <span className="mt-0.5 shrink-0 text-[color:var(--color-warning)]">⚠</span>
+                  {f}
+                </li>
+              ))}
+            </ul>
+          )}
+          {analysis.aiWritingScore >= 40 && (
+            <p className="mt-3 text-xs text-muted-foreground border-t border-border pt-3">
+              <strong className="text-foreground">Tip:</strong> Recruiters and ATS systems increasingly flag AI-generated CVs. Replace buzzwords with specific, quantified achievements. Use plain language over promotional phrases.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* CV snippet */}
       <div className="mt-4 rounded-2xl border border-border bg-card p-5">
         <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
@@ -817,19 +873,37 @@ async function analyseCV(text: string): Promise<CVAnalysis> {
   // Trim to 3000 chars — enough for solid analysis and keeps token usage down
   const cvSnippet = text.replace(/\s+/g, " ").trim().slice(0, 3000);
 
-  const prompt = `You are an expert CV/resume reviewer and ATS specialist.
+  const prompt = `You are an expert CV/resume reviewer, ATS specialist, and AI-writing detector.
 
 Analyse the CV below and return ONLY a valid JSON object — no markdown, no explanation, nothing else.
 
 Return this exact shape:
-{"overallScore":<0-100>,"atsReady":<bool>,"name":"<name or empty>","headline":"<role or empty>","location":"<city, country or empty>","yearsOfExperience":<int>,"primaryLanguages":["lang1"],"skills":["s1","s2"],"sections":[{"label":"Formatting","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Grammar","status":"good"|"warn"|"bad","score":<0-100>},{"label":"ATS Keywords","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Skills Section","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Experience","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Projects","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Achievements","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Professional Summary","status":"good"|"warn"|"bad","score":<0-100>}],"suggestions":["tip1","tip2","tip3","tip4"]}
+{"overallScore":<0-100>,"atsReady":<bool>,"name":"<name or empty>","headline":"<role or empty>","location":"<city, country or empty>","yearsOfExperience":<int>,"primaryLanguages":["lang1"],"skills":["s1","s2"],"aiWritingScore":<0-100>,"aiWritingFlags":["flag1","flag2"],"sections":[{"label":"Formatting","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Grammar","status":"good"|"warn"|"bad","score":<0-100>},{"label":"ATS Keywords","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Skills Section","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Experience","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Projects","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Achievements","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Professional Summary","status":"good"|"warn"|"bad","score":<0-100>},{"label":"Originality","status":"good"|"warn"|"bad","score":<0-100>}],"suggestions":["tip1","tip2","tip3","tip4"]}
 
-Rules:
+CV Section Scoring Rules:
 - status "good"=score>=80, "warn"=50-79, "bad"=<50
 - overallScore = weighted average of section scores
 - atsReady = true if overallScore>=75
 - suggestions must be specific to this CV, not generic
-- Return ONLY the JSON object, starting with { and ending with }
+
+AI Writing Detection (aiWritingScore + aiWritingFlags):
+Scan for these known signs of AI-generated text from Wikipedia's AI writing guide:
+1. VOCABULARY OVERUSE: Words like "delve", "pivotal", "crucial", "robust", "tapestry", "underscore", "vibrant", "meticulous", "fostering", "showcasing", "landscape", "testament", "enhance", "boasts", "garnered", "interplay" — count how many appear
+2. PROMOTIONAL PUFFERY: Phrases like "proven track record", "results-driven", "passionate about", "dynamic professional", "committed to excellence", "detail-oriented", "self-starter", "go-getter", "team player", "hard-working individual"
+3. VAGUE ATTRIBUTION: Phrases like "various projects", "numerous stakeholders", "several achievements", "multiple clients" with no specifics
+4. NOT-JUST-X-BUT-Y PATTERNS: Constructions like "not only...but also", "not just...but", "goes beyond...to"
+5. CHALLENGE/LEGACY BOILERPLATE: Generic conclusions like "looking to leverage my skills", "seeking new challenges", "passionate about making an impact", "committed to driving results"
+6. AVOIDANCE OF IS/ARE: Over-use of "serves as", "functions as", "stands as", "marks a", "represents a" instead of simple "is"
+7. RULE OF THREE: Repetitive triplets like "motivated, dedicated, and results-oriented" or "innovative, collaborative, and strategic"
+8. SUPERLATIVE PUFFERY: "exceptional", "outstanding", "excellent", "strong", "extensive" without evidence
+9. EM-DASH OVERUSE: Excessive use of em-dashes (—) for dramatic effect
+10. COLLABORATIVE COMMUNICATION: Phrases like "feel free to contact me", "I would love to", "I am excited to"
+
+aiWritingScore: 0=clearly human, 100=clearly AI-written. Score based on density of the above flags.
+aiWritingFlags: List the specific issues found (e.g. "High density of AI vocabulary: delve, pivotal, robust", "Promotional puffery detected", "Vague attributions without specifics")
+Originality section score: 100 minus aiWritingScore (high AI score = low originality score)
+
+Return ONLY the JSON object, starting with { and ending with }
 
 CV:
 ${cvSnippet}`;

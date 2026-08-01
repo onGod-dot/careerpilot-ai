@@ -387,6 +387,56 @@ function CVPage() {
                   <Sparkles className="h-4 w-4" /> Improve my CV <ArrowRight className="h-4 w-4" />
                 </button>
               </div>
+
+              {/* AI Writing Detection Panel */}
+              {analysis.aiWritingScore !== undefined && (
+                <div className={`rounded-xl border p-6 ${
+                  analysis.aiWritingScore >= 70 ? "border-destructive/30 bg-destructive/5" :
+                  analysis.aiWritingScore >= 40 ? "border-[color:var(--color-warning)]/30 bg-[color:var(--color-warning)]/5" :
+                  "border-primary/20 bg-primary/5"
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm font-semibold">AI Writing Detection</div>
+                    <span className={`text-xl font-bold ${
+                      analysis.aiWritingScore >= 70 ? "text-destructive" :
+                      analysis.aiWritingScore >= 40 ? "text-[color:var(--color-warning)]" :
+                      "text-primary"
+                    }`}>
+                      {analysis.aiWritingScore}/100
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted mb-2">
+                    <div className={`h-1.5 rounded-full ${
+                      analysis.aiWritingScore >= 70 ? "bg-destructive" :
+                      analysis.aiWritingScore >= 40 ? "bg-[color:var(--color-warning)]" :
+                      "bg-primary"
+                    }`} style={{ width: `${analysis.aiWritingScore}%` }} />
+                  </div>
+                  <p className={`text-xs font-medium mb-3 ${
+                    analysis.aiWritingScore >= 70 ? "text-destructive" :
+                    analysis.aiWritingScore >= 40 ? "text-[color:var(--color-warning)]" :
+                    "text-primary"
+                  }`}>
+                    {analysis.aiWritingScore >= 70 ? "Likely AI-written" :
+                     analysis.aiWritingScore >= 40 ? "Possibly AI-assisted" :
+                     "Appears human-written"}
+                  </p>
+                  {analysis.aiWritingFlags && analysis.aiWritingFlags.length > 0 && (
+                    <ul className="space-y-1.5">
+                      {analysis.aiWritingFlags.map((f, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <span className="shrink-0 text-[color:var(--color-warning)]">⚠</span>{f}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {analysis.aiWritingScore >= 40 && (
+                    <p className="mt-3 text-xs text-muted-foreground border-t border-border pt-3">
+                      <strong className="text-foreground">Tip:</strong> Replace buzzwords with specific achievements. Use plain, direct language instead of promotional phrases.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -433,12 +483,11 @@ function StatusIcon({ status }: { status: "good" | "warn" | "bad" }) {
 // ─── AI helpers ──────────────────────────────────────────────────────────────
 
 async function analyseCV(text: string): Promise<CVAnalysis> {
-  const prompt = `You are an expert CV/resume reviewer and ATS specialist.
+  const prompt = `You are an expert CV/resume reviewer, ATS specialist, and AI-writing detector.
 
 Analyse the following CV text and return ONLY a valid JSON object.
 
 IMPORTANT: Return ONLY raw JSON. No markdown code blocks, no explanation, no extra text.
-Keep responses short, simple, and precise. Avoid lengthy explanations.
 
 The JSON must have this exact shape:
 {
@@ -446,7 +495,9 @@ The JSON must have this exact shape:
   "atsReady": <boolean>,
   "name": "<candidate name if found, else empty string>",
   "headline": "<job title/headline if found, else empty string>",
-  "skills": ["skill1", "skill2", ...],
+  "skills": ["skill1", "skill2"],
+  "aiWritingScore": <0-100>,
+  "aiWritingFlags": ["flag1", "flag2"],
   "sections": [
     { "label": "Formatting", "status": "good"|"warn"|"bad", "score": <0-100> },
     { "label": "Grammar", "status": "good"|"warn"|"bad", "score": <0-100> },
@@ -455,38 +506,30 @@ The JSON must have this exact shape:
     { "label": "Experience", "status": "good"|"warn"|"bad", "score": <0-100> },
     { "label": "Projects", "status": "good"|"warn"|"bad", "score": <0-100> },
     { "label": "Achievements", "status": "good"|"warn"|"bad", "score": <0-100> },
-    { "label": "Professional Summary", "status": "good"|"warn"|"bad", "score": <0-100> }
+    { "label": "Professional Summary", "status": "good"|"warn"|"bad", "score": <0-100> },
+    { "label": "Originality", "status": "good"|"warn"|"bad", "score": <0-100> }
   ],
-  "suggestions": [
-    "<actionable suggestion 1>",
-    "<actionable suggestion 2>",
-    "<actionable suggestion 3>",
-    "<actionable suggestion 4>"
-  ]
+  "suggestions": ["tip1", "tip2", "tip3", "tip4"]
 }
 
-Scoring Criteria:
-- Formatting: Check for consistent formatting, proper spacing, clear section headers (score 0-100)
-- Grammar: Check for spelling errors, typos, grammatical mistakes (score 0-100)
-- ATS Keywords: Check for industry-relevant keywords, action verbs, skills (score 0-100)
-- Skills Section: Check if skills are listed, categorized, and relevant (score 0-100)
-- Experience: Check for work history, role descriptions, achievements (score 0-100)
-- Projects: Check for project descriptions, impact, technologies used (score 0-100)
-- Achievements: Check for quantified results, awards, recognitions (score 0-100)
-- Professional Summary: Check for compelling summary, target role, value proposition (score 0-100)
-
-Status Rules:
-- status "good" = score >= 80
-- status "warn" = 50-79  
-- status "bad" = < 50
-- overallScore = weighted average of all section scores
+Standard Scoring:
+- status good=score>=80, warn=50-79, bad=<50
+- overallScore = weighted average of section scores
 - atsReady = true if overallScore >= 75
+- suggestions must be specific to this CV content, not generic
 
-Suggestions must be:
-- Specific to the CV content
-- Actionable and practical
-- Based on actual weaknesses found
-- Not generic or template-based
+AI Writing Detection (aiWritingScore + aiWritingFlags):
+Score 0=clearly human, 100=clearly AI-written. Check for these signs based on Wikipedia's AI writing guide:
+1. VOCABULARY OVERUSE: Words like "delve", "pivotal", "crucial", "robust", "tapestry", "underscore", "vibrant", "meticulous", "fostering", "showcasing", "testament", "boasts", "garnered", "interplay", "enhance", "landscape"
+2. PROMOTIONAL PUFFERY: "proven track record", "results-driven", "passionate about", "dynamic professional", "committed to excellence", "detail-oriented", "self-starter", "team player"
+3. VAGUE ATTRIBUTION: "various projects", "numerous stakeholders", "several achievements", "multiple clients" with no specifics
+4. NOT-JUST-X-BUT-Y: "not only...but also", "not just...but", "goes beyond...to"
+5. CHALLENGE BOILERPLATE: "seeking new challenges", "passionate about making an impact", "committed to driving results", "leverage my skills"
+6. COPULA AVOIDANCE: Over-using "serves as", "functions as", "stands as" instead of "is/was"
+7. RULE OF THREE: Triplets like "motivated, dedicated, and results-oriented"
+8. SUPERLATIVE PUFFERY: "exceptional", "outstanding", "excellent" without evidence
+aiWritingFlags: List specific issues found (be concise)
+Originality score = 100 minus aiWritingScore
 
 CV text to analyse:
 ${text.slice(0, 4000)}`;
