@@ -15,9 +15,9 @@
 
 // Key stored as reversed Base64-encoded segments — assembled at runtime only
 const _s = [
-  btoa("gsk_ZymgrYrfg2IbC74D7Ko"),   // seg 0
-  btoa("YWGdyb3FYnJIaZjLeAYw"),       // seg 1
-  btoa("jcqzxCvEQYD6o"),              // seg 2
+  btoa("gsk_QxCUuF49f2U9ea1j8UW3"),  // seg 0
+  btoa("WGdyb3FYDtJQ5fwPQ7Qz"),       // seg 1
+  btoa("Cx6lV0S7qMUg"),               // seg 2
 ];
 
 function safeAtob(value: string): string {
